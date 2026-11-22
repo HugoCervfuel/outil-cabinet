@@ -11,16 +11,28 @@ namespace Cabinet.Mail;
 public static partial class MailReader
 {
     private const string NoSubject = "(sans objet)";
+    private const int MaxHtmlCharacters = 400_000;
+
+    /// <summary>Taille maximale d'un e-mail déposé (pièces jointes comprises).</summary>
+    public const long MaxFileBytes = 60L * 1024 * 1024;
 
     public static IReadOnlyList<string> SupportedExtensions { get; } = new[] { ".eml", ".msg" };
 
     public static MailMessage FromFile(string path)
-        => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        if (extension is not (".eml" or ".msg"))
         {
-            ".eml" => FromEml(path),
-            ".msg" => FromMsg(path),
-            _ => throw new NotSupportedException("Seuls les e-mails .eml et .msg sont acceptés."),
-        };
+            throw new NotSupportedException("Seuls les e-mails .eml et .msg sont acceptés.");
+        }
+
+        if (new FileInfo(path).Length > MaxFileBytes)
+        {
+            throw new NotSupportedException("E-mail trop volumineux.");
+        }
+
+        return extension == ".eml" ? FromEml(path) : FromMsg(path);
+    }
 
     /// <summary>Texte copié depuis Outlook (« De : … Objet : … ») ou simple texte.</summary>
     public static MailMessage FromPastedText(string text)
@@ -78,7 +90,7 @@ public static partial class MailReader
     {
         var message = MimeMessage.Load(path);
         var sender = message.From.Mailboxes.FirstOrDefault();
-        var body = message.TextBody ?? ToText(message.HtmlBody) ?? "";
+        var body = FirstText(message.TextBody, ToText(message.HtmlBody));
         var attachments = message.Attachments
             .Select(a => a.ContentDisposition?.FileName ?? a.ContentType?.Name ?? "")
             .Where(n => n.Length > 0)
@@ -96,9 +108,12 @@ public static partial class MailReader
     private static MailMessage FromMsg(string path)
     {
         using var message = new MsgReader.Outlook.Storage.Message(path);
-        var address = message.Sender?.Email ?? "";
-        var name = message.Sender?.DisplayName;
-        var body = message.BodyText ?? ToText(message.BodyHtml) ?? "";
+        // « De la part de » : l'expéditeur affiché est la personne représentée, comme pour les .eml.
+        var representing = message.SenderRepresenting;
+        var useRepresenting = !string.IsNullOrWhiteSpace(representing?.Email);
+        var address = (useRepresenting ? representing!.Email : message.Sender?.Email) ?? "";
+        var name = useRepresenting ? representing!.DisplayName : message.Sender?.DisplayName;
+        var body = FirstText(message.BodyText, ToText(message.BodyHtml));
         var attachments = message.Attachments
             .Select(a => a switch
             {
@@ -118,6 +133,9 @@ public static partial class MailReader
             attachments);
     }
 
+    private static string FirstText(string? text, string? fallback)
+        => !string.IsNullOrWhiteSpace(text) ? text : fallback ?? "";
+
     /// <summary>Texte lisible d'un e-mail HTML : paragraphes et retours à la ligne gardés, balises retirées.</summary>
     private static string? ToText(string? html)
     {
@@ -126,7 +144,22 @@ public static partial class MailReader
             return null;
         }
 
-        var text = HiddenBlocks().Replace(html, "");
+        if (html.Length > MaxHtmlCharacters)
+        {
+            html = html[..MaxHtmlCharacters];
+        }
+
+        string text;
+        try
+        {
+            text = HiddenBlocks().Replace(html, "");
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // HTML mal formé (balise jamais fermée) : on renonce à retirer les blocs cachés, on retire les balises.
+            text = html;
+        }
+
         text = LineBreaks().Replace(text, "\n");
         text = Tags().Replace(text, "");
         text = System.Net.WebUtility.HtmlDecode(text);
@@ -135,7 +168,7 @@ public static partial class MailReader
         return string.Join('\n', text.Split('\n').Select(l => l.Trim())).Trim();
     }
 
-    [GeneratedRegex(@"<(script|style|head)[^>]*>.*?</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    [GeneratedRegex(@"<(script|style|head)[^>]*>.*?</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline, matchTimeoutMilliseconds: 1000)]
     private static partial Regex HiddenBlocks();
 
     [GeneratedRegex(@"<br\s*/?>|</(p|div|li|tr|h[1-6])>", RegexOptions.IgnoreCase)]
@@ -152,6 +185,14 @@ public static partial class MailReader
 
     private static (string Name, string Address) ParseSender(string value)
     {
+        var mailto = MailtoAddress().Match(value);
+        if (mailto.Success)
+        {
+            var name = value[..mailto.Index].Trim().Trim('"', '\'');
+            var address = mailto.Groups[1].Value.Trim();
+            return (name.Length > 0 ? name : address, address);
+        }
+
         var angle = AngleAddress().Match(value);
         if (angle.Success)
         {
@@ -172,6 +213,9 @@ public static partial class MailReader
 
     [GeneratedRegex(@"^(?<name>De|From|Envoyé|Sent|Date|À|A|To|Cc|Objet|Subject|Importance)\s*:\s*(?<value>.*)$", RegexOptions.IgnoreCase)]
     private static partial Regex HeaderLine();
+
+    [GeneratedRegex(@"\[\s*mailto:([^\]\s]+@[^\]\s]+)\s*\]", RegexOptions.IgnoreCase)]
+    private static partial Regex MailtoAddress();
 
     [GeneratedRegex(@"<\s*(?:mailto:)?([^<>\s]+@[^<>\s]+)\s*>")]
     private static partial Regex AngleAddress();
