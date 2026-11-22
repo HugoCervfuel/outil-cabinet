@@ -39,8 +39,11 @@ public partial class MainWindow : Window
             _report = await Task.Run(_runner.RunAutomaticChecks);
             ShowVerdicts(_report);
             QuestionPanel.Visibility = Visibility.Collapsed;
+            GuardedStatus.Visibility = Visibility.Collapsed;
+            GuardedButtonPanel.Visibility = Visibility.Visible;
             GuardedCard.Visibility = _report.CanRunGuardedTest ? Visibility.Visible : Visibility.Collapsed;
-            ReportCard.Visibility = Visibility.Visible;
+            // Le rapport n'est proposé qu'une fois le test décisif fait, ou s'il est impossible.
+            ReportCard.Visibility = _report.CanRunGuardedTest ? Visibility.Collapsed : Visibility.Visible;
             ReportStatus.Visibility = Visibility.Collapsed;
             StartButton.Content = "Relancer le diagnostic";
         }
@@ -62,7 +65,19 @@ public partial class MainWindow : Window
         {
             var current = _report;
             _report = await Task.Run(() => _runner.RunGuardedCheck(current));
-            QuestionPanel.Visibility = Visibility.Visible;
+            GuardedButtonPanel.Visibility = Visibility.Collapsed;
+
+            if (_report.AlertQuestionNeeded)
+            {
+                QuestionPanel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                GuardedStatus.Visibility = _report.GuardedAccess == GuardedAccessOutcome.TimedOut ? Visibility.Visible : Visibility.Collapsed;
+                GuardedCard.Visibility = _report.GuardedAccess == GuardedAccessOutcome.TimedOut ? Visibility.Visible : Visibility.Collapsed;
+                ShowVerdicts(_report);
+                ReportCard.Visibility = Visibility.Visible;
+            }
         }
         finally
         {
@@ -85,6 +100,7 @@ public partial class MainWindow : Window
         ShowVerdicts(_report);
         QuestionPanel.Visibility = Visibility.Collapsed;
         GuardedCard.Visibility = Visibility.Collapsed;
+        ReportCard.Visibility = Visibility.Visible;
     }
 
     private void OnCopyClick(object sender, RoutedEventArgs e)

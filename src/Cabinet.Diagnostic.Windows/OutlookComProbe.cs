@@ -61,10 +61,12 @@ public sealed class OutlookComProbe : IOutlookProbe
 
     public GuardedAccessOutcome TryGuardedRead()
     {
-        if (!IsOutlookRunning())
+        if (FindOutlookProcessId() is not { } outlookProcessId)
         {
             return GuardedAccessOutcome.Failed;
         }
+
+        NativeMethods.AllowSetForegroundWindow(outlookProcessId);
 
         dynamic? app = null, ns = null, inbox = null, items = null;
         try
@@ -89,13 +91,7 @@ public sealed class OutlookComProbe : IOutlookProbe
                 {
                     if ((int)item.Class == MailItemClass)
                     {
-                        int? length = ReadSenderAddressLength((object)item);
-                        return length switch
-                        {
-                            null => GuardedAccessOutcome.Denied,
-                            > 0 => GuardedAccessOutcome.Succeeded,
-                            _ => GuardedAccessOutcome.Failed,
-                        };
+                        return ReadSenderAddress((object)item);
                     }
                 }
                 finally
@@ -119,19 +115,19 @@ public sealed class OutlookComProbe : IOutlookProbe
     }
 
     /// <summary>
-    /// Lit l'adresse de l'expéditeur (propriété protégée par Outlook) et n'en garde que la longueur.
-    /// Renvoie null si Outlook refuse l'accès.
+    /// Lit l'adresse de l'expéditeur (propriété protégée par Outlook) et n'en garde que la présence.
+    /// Seul un refus d'Outlook compte comme refus ; toute autre erreur est un échec technique.
     /// </summary>
-    private static int? ReadSenderAddressLength(object mail)
+    private static GuardedAccessOutcome ReadSenderAddress(object mail)
     {
         try
         {
             string? address = ((dynamic)mail).SenderEmailAddress;
-            return address?.Length ?? 0;
+            return string.IsNullOrEmpty(address) ? GuardedAccessOutcome.Failed : GuardedAccessOutcome.Succeeded;
         }
-        catch (COMException)
+        catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
         {
-            return null;
+            return GuardedErrorClassifier.Classify(ex.HResult);
         }
     }
 
@@ -162,8 +158,9 @@ public sealed class OutlookComProbe : IOutlookProbe
             Release((object?)item);
             return count;
         }
-        catch (Exception ex) when (ex is COMException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or InvalidCastException)
+        catch (Exception)
         {
+            // Information secondaire : une erreur sur l'agenda ne doit pas faire échouer la connexion à Outlook.
             return null;
         }
         finally
@@ -178,15 +175,29 @@ public sealed class OutlookComProbe : IOutlookProbe
         return type is null ? null : Activator.CreateInstance(type);
     }
 
-    private static bool IsOutlookRunning()
+    private static bool IsOutlookRunning() => FindOutlookProcessId() is not null;
+
+    /// <summary>
+    /// Outlook ouvert dans la session Windows de l'utilisateur. Un Outlook d'une autre session ne compte pas :
+    /// s'y fier conduirait COM à démarrer un Outlook caché dans cette session.
+    /// </summary>
+    private static uint? FindOutlookProcessId()
     {
-        var processes = Process.GetProcessesByName("OUTLOOK");
-        foreach (var process in processes)
+        using var current = Process.GetCurrentProcess();
+        var sessionId = current.SessionId;
+        uint? found = null;
+        foreach (var process in Process.GetProcessesByName("OUTLOOK"))
         {
-            process.Dispose();
+            using (process)
+            {
+                if (found is null && process.SessionId == sessionId)
+                {
+                    found = (uint)process.Id;
+                }
+            }
         }
 
-        return processes.Length > 0;
+        return found;
     }
 
     private static void Release(params object?[] comObjects)

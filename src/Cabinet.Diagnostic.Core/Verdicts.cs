@@ -41,7 +41,9 @@ public static class Verdicts
             return new Verdict(CheckStatus.Warning, VerdictKind.OutlookNotTested);
         }
 
-        if (r.AlertShownByOutlook == true || r.GuardedAccess is GuardedAccessOutcome.Denied or GuardedAccessOutcome.TimedOut)
+        // La réponse de l'utilisateur ne compte qu'après une lecture réussie : sans lecture, l'outil n'a pu provoquer aucune alerte.
+        if (r.GuardedAccess is GuardedAccessOutcome.Denied or GuardedAccessOutcome.TimedOut
+            || (r.GuardedAccess == GuardedAccessOutcome.Succeeded && r.AlertShownByOutlook == true))
         {
             return new Verdict(CheckStatus.Warning, VerdictKind.OutlookNeedsAddIn);
         }

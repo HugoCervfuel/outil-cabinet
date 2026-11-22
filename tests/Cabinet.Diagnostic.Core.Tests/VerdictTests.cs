@@ -72,3 +72,33 @@ public class VerdictTests
         => Assert.Equal(new Verdict(CheckStatus.Failed, VerdictKind.DocumentsNotWritable),
             Verdicts.Documents(Sample() with { Documents = new FolderInfo(true, false, CloudSync.None) }));
 }
+
+public class ReviewFixVerdictTests
+{
+    [Fact]
+    public void Outlook_NoMailToTest_WithYesAnswer_IsNotTested()
+        => Assert.Equal(VerdictKind.OutlookNotTested,
+            Verdicts.Outlook(TestData.Sample() with { GuardedAccess = GuardedAccessOutcome.NoMailToTest, AlertShownByOutlook = true }).Kind);
+
+    [Theory]
+    [InlineData(GuardedAccessOutcome.Succeeded, true)]
+    [InlineData(GuardedAccessOutcome.Denied, false)]
+    [InlineData(GuardedAccessOutcome.TimedOut, false)]
+    [InlineData(GuardedAccessOutcome.NoMailToTest, false)]
+    [InlineData(GuardedAccessOutcome.Failed, false)]
+    public void AlertQuestionNeeded_OnlyAfterSuccessfulRead(GuardedAccessOutcome outcome, bool expected)
+        => Assert.Equal(expected, (TestData.Sample() with { GuardedAccess = outcome, AlertShownByOutlook = null }).AlertQuestionNeeded);
+
+    [Theory]
+    [InlineData(unchecked((int)0x80004004), GuardedAccessOutcome.Denied)]   // E_ABORT : « Refuser » dans Outlook
+    [InlineData(unchecked((int)0x80070005), GuardedAccessOutcome.Denied)]   // E_ACCESSDENIED : refus par règle
+    [InlineData(unchecked((int)0x80010001), GuardedAccessOutcome.Failed)]   // RPC_E_CALL_REJECTED : Outlook occupé
+    [InlineData(unchecked((int)0x80010108), GuardedAccessOutcome.Failed)]   // RPC_E_DISCONNECTED : Outlook fermé
+    public void GuardedError_Classify(int hresult, GuardedAccessOutcome expected)
+        => Assert.Equal(expected, GuardedErrorClassifier.Classify(hresult));
+
+    [Fact]
+    public void Detect_DropboxBusinessFolder_IsOtherService()
+        => Assert.Equal(CloudSync.OtherService,
+            CloudSyncDetector.Detect(@"C:\Users\ana\Dropbox (Cabinet)\Documents", new Dictionary<string, string?>()));
+}

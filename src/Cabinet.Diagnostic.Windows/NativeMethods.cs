@@ -26,4 +26,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetLastInputInfo(ref LastInputInfo info);
+
+    /// <summary>Autorise Outlook à passer au premier plan, pour que son éventuelle alerte de sécurité soit visible.</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AllowSetForegroundWindow(uint processId);
 }

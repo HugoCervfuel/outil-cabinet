@@ -36,4 +36,7 @@ public sealed record DiagnosticReport(
     FolderInfo Documents)
 {
     public bool CanRunGuardedTest => OutlookPresence.ClassicInstalled && Outlook.Connection == OutlookConnection.Connected;
+
+    /// <summary>La question « Outlook a-t-il affiché une alerte ? » n'a de sens qu'après une lecture réussie.</summary>
+    public bool AlertQuestionNeeded => GuardedAccess == GuardedAccessOutcome.Succeeded;
 }

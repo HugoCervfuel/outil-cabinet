@@ -38,9 +38,11 @@
         <StackPanel>
           <TextBlock Style="{StaticResource BodyText}"
                      Text="Dernier test : l'outil va lire l'adresse d'un expéditeur dans Outlook, sans l'afficher ni la conserver. Si Outlook affiche une fenêtre demandant d'autoriser l'accès, cliquez sur « Refuser »."/>
-          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+          <StackPanel x:Name="GuardedButtonPanel" Orientation="Horizontal" Margin="0,16,0,0">
             <Button x:Name="GuardedButton" Style="{StaticResource PrimaryButton}" Content="Lancer ce test" Click="OnGuardedClick"/>
           </StackPanel>
+          <TextBlock x:Name="GuardedStatus" Style="{StaticResource BodyText}" Margin="0,16,0,0" Visibility="Collapsed"
+                     Text="Outlook n'a pas répondu. Une fenêtre d'Outlook attend peut-être votre réponse : cliquez sur « Refuser » dans Outlook."/>
           <StackPanel x:Name="QuestionPanel" Margin="0,16,0,0" Visibility="Collapsed">
             <TextBlock Text="Outlook a-t-il affiché une fenêtre d'alerte ?" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
             <StackPanel Orientation="Horizontal">

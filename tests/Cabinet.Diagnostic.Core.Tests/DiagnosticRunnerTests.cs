@@ -147,3 +147,45 @@ public class DiagnosticRunnerTests
         => Assert.Throws<InvalidOperationException>(() =>
             TimedCall.Run<int>(() => throw new InvalidOperationException("x"), TimeSpan.FromSeconds(5), 0, sta: false));
 }
+
+public class ReviewFixRunnerTests
+{
+    private sealed class BlockingSystem : ISystemProbe
+    {
+        public SystemInfo Read()
+        {
+            new ManualResetEventSlim(false).Wait();
+            return TestData.Sample().System;
+        }
+    }
+
+    private sealed class FineWindow : IWindowProbe
+    {
+        public WindowSample? SampleForeground() => new(true, 1);
+        public TimeSpan? IdleTime() => TimeSpan.Zero;
+    }
+
+    private sealed class NoOutlook : IOutlookProbe
+    {
+        public OutlookPresence DetectInstallation() => new(false, OfficeBitness.Unknown, ObjectModelGuardPolicy.NotSet);
+        public OutlookFacts ReadFacts() => throw new InvalidOperationException();
+        public GuardedAccessOutcome TryGuardedRead() => throw new InvalidOperationException();
+    }
+
+    private sealed class FineFolder : IFolderProbe
+    {
+        public FolderInfo InspectDocuments() => new(true, true, CloudSync.None);
+    }
+
+    [Fact]
+    public void RunAutomaticChecks_BlockingSystemProbe_FallsBackWithinTimeout()
+    {
+        var runner = new DiagnosticRunner(new BlockingSystem(), new FineWindow(), new NoOutlook(), new FineFolder(),
+            TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(5));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var report = runner.RunAutomaticChecks();
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.Equal(AntivirusState.Unknown, report.System.Antivirus);
+        Assert.True(report.Documents.Writable);
+    }
+}

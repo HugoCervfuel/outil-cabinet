@@ -7,7 +7,7 @@ public static class CloudSyncDetector
 {
     private static readonly string[] OneDriveVariables = { "OneDrive", "OneDriveCommercial", "OneDriveConsumer" };
 
-    private static readonly string[] OtherServiceSegments = { "Dropbox", "Google Drive", "Mon Drive", "My Drive", "iCloudDrive" };
+    private static readonly string[] OtherServiceSegments = { "Google Drive", "Mon Drive", "My Drive", "iCloudDrive" };
 
     public static CloudSync Detect(string folderPath, IReadOnlyDictionary<string, string?> environment)
     {
@@ -34,7 +34,9 @@ public static class CloudSyncDetector
             return CloudSync.OneDrive;
         }
 
-        if (segments.Any(s => OtherServiceSegments.Contains(s, StringComparer.OrdinalIgnoreCase)))
+        // « Dropbox » ou « Dropbox (Cabinet) » pour les comptes professionnels.
+        if (segments.Any(s => s.StartsWith("Dropbox", StringComparison.OrdinalIgnoreCase)
+                              || OtherServiceSegments.Contains(s, StringComparer.OrdinalIgnoreCase)))
         {
             return CloudSync.OtherService;
         }

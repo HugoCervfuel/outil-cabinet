@@ -49,6 +49,7 @@ public sealed class WindowsSystemProbe : ISystemProbe
         try
         {
             using var searcher = new ManagementObjectSearcher(@"root\SecurityCenter2", "SELECT displayName, productState FROM AntiVirusProduct");
+            searcher.Options.Timeout = TimeSpan.FromSeconds(10);
             var products = new List<(string Name, AntivirusState State)>();
             foreach (var result in searcher.Get())
             {
