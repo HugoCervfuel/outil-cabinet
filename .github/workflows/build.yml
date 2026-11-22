@@ -30,6 +30,15 @@ jobs:
       - name: Outil de cabinet pour Windows
         run: dotnet publish src/Cabinet.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win
 
+      - name: Démarrage réel de l'application Windows (15 secondes)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath publish/win/OutilCabinet.exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { Write-Error "L'application s'est arrêtée au démarrage (code $($p.ExitCode))."; exit 1 }
+          Write-Host "L'application tourne toujours après 15 secondes."
+          Stop-Process -Id $p.Id
+
       - uses: actions/upload-artifact@v4
         with:
           name: Diagnostic-OutilCabinet
@@ -60,6 +69,23 @@ jobs:
 
       - name: Application Mac (Intel)
         run: scripts/package-mac.sh osx-x64
+
+      - name: Démarrage réel de l'application Mac (15 secondes)
+        run: |
+          APP="publish/mac-osx-arm64/Outil de cabinet.app"
+          "$APP/Contents/MacOS/OutilCabinet" > app-mac.log 2>&1 &
+          PID=$!
+          sleep 15
+          cat app-mac.log
+          if kill -0 "$PID" 2>/dev/null; then
+            echo "L'application tourne toujours après 15 secondes."
+            kill "$PID"
+          else
+            echo "L'application s'est arrêtée au démarrage."
+            exit 1
+          fi
+          spctl --assess --type execute -vv "$APP" || true
+          codesign -dv "$APP" 2>&1 | head -5
 
       - uses: actions/upload-artifact@v4
         with:
