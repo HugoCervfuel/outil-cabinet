@@ -13,6 +13,15 @@ internal sealed class SettingsWindow : Window
     private readonly ComboBox _rounding = new() { Width = 140 };
     private readonly TextBox _reminder = new() { Width = 140, PlaceholderText = "18:30" };
     private readonly TextBlock _status = Ui.Text("", 12, brush: "Ink3");
+    private readonly ComboBox _model = new() { Width = 300 };
+
+    private static readonly (string? Model, string Label)[] ModelChoices =
+    {
+        (null, "Conseillé pour cet ordinateur"),
+        ("gemma3:4b", "gemma3:4b — rapide, pour tout ordinateur"),
+        ("gemma3:12b", "gemma3:12b — équilibré (16 Go de mémoire)"),
+        ("mistral-small3.2", "mistral-small3.2 — meilleure rédaction (Mac 32 Go)"),
+    };
 
     private static readonly int[] RoundingChoices = { 1, 5, 6, 10, 15 };
 
@@ -32,6 +41,9 @@ internal sealed class SettingsWindow : Window
         _rounding.ItemsSource = RoundingChoices.Select(m => $"{m} min").ToList();
         _rounding.SelectedIndex = Math.Max(0, Array.IndexOf(RoundingChoices, settings.RoundingMinutes));
         _reminder.Text = settings.ReminderTime.ToString("HH:mm");
+        var recommended = AppServices.ModelFor(settings with { AiModel = null });
+        _model.ItemsSource = ModelChoices.Select(c => c.Model is null ? $"{c.Label} ({recommended})" : c.Label).ToList();
+        _model.SelectedIndex = Math.Max(0, Array.FindIndex(ModelChoices, c => c.Model == settings.AiModel));
 
         Content = new Border
         {
@@ -46,6 +58,10 @@ internal sealed class SettingsWindow : Window
                     Line("Arrêt après une absence de (minutes)", _idle),
                     Line("Arrondi des durées", _rounding),
                     Line("Rappel pour valider la journée", _reminder)), new Thickness(0)),
+                Ui.Card(Ui.Column(8,
+                    Ui.Text("IA locale (courrier)", 14, bold: true),
+                    Ui.Text("Un modèle plus léger répond plus vite ; un modèle plus gros rédige mieux mais demande un ordinateur puissant. Tout reste sur cet ordinateur.", 12, brush: "Ink2"),
+                    _model), new Thickness(0)),
                 Ui.Row(8, Ui.Primary("Enregistrer", Save), Ui.Secondary("Fermer", Close)),
                 _status),
         };
@@ -80,7 +96,9 @@ internal sealed class SettingsWindow : Window
             IdleMinutes = (int)(_idle.Value ?? 5),
             RoundingMinutes = RoundingChoices[Math.Max(0, _rounding.SelectedIndex)],
             ReminderTime = reminder,
+            AiModel = ModelChoices[Math.Max(0, _model.SelectedIndex)].Model,
         });
+        _shell.ApplyAiModel();
 
         _status.Text = "Réglages enregistrés.";
         _status.Foreground = Ui.Brush("Run");

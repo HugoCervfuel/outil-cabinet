@@ -14,6 +14,12 @@ internal sealed class DossiersWindow : Window
     private readonly TextBox _name = new() { PlaceholderText = "Ex. : MARTIN c/ Axa" };
     private readonly TextBox _keywords = new() { PlaceholderText = "Ex. : martin, axa, sinistre 2024" };
     private readonly TextBox _reference = new() { PlaceholderText = "Facultatif" };
+    private readonly TextBox _addresses = new()
+    {
+        AcceptsReturn = true,
+        Height = 60,
+        PlaceholderText = "Une adresse par ligne. Ex. : client@exemple.fr",
+    };
     private readonly TextBox _notes = new()
     {
         AcceptsReturn = true,
@@ -54,6 +60,7 @@ internal sealed class DossiersWindow : Window
             Ui.Text("L'outil reconnaît le dossier quand un de ces mots apparaît dans le nom d'un document, d'un e-mail ou d'une page.", 12, brush: "Ink3"),
             Field("Référence Kleos", _reference),
             Field("Où en est le dossier", _notes),
+            Field("E-mails reconnus pour ce dossier", _addresses),
             Ui.Text("L'assistant courrier s'en sert pour proposer des réponses adaptées.", 12, brush: "Ink3"),
             Ui.Row(8, _submit, Ui.Secondary("Effacer", ResetForm)));
 
@@ -118,11 +125,13 @@ internal sealed class DossiersWindow : Window
         {
             _shell.Session.UpdateDossier(id, name, _keywords.Text ?? "", _reference.Text);
             _shell.Session.SetNotes(id, _notes.Text);
+            _shell.Session.SetAddresses(id, _addresses.Text);
         }
         else
         {
             var created = _shell.Session.AddDossier(name, _keywords.Text ?? "", _reference.Text);
             _shell.Session.SetNotes(created.Id, _notes.Text);
+            _shell.Session.SetAddresses(created.Id, _addresses.Text);
         }
 
         ResetForm();
@@ -139,6 +148,7 @@ internal sealed class DossiersWindow : Window
         _keywords.Text = "";
         _reference.Text = "";
         _notes.Text = "";
+        _addresses.Text = "";
         _formTitle.Text = "Ajouter un dossier";
         _submit.Content = "Ajouter";
     }
@@ -151,6 +161,7 @@ internal sealed class DossiersWindow : Window
         _keywords.Text = string.Join(", ", dossier.Keywords);
         _reference.Text = dossier.KleosReference ?? "";
         _notes.Text = dossier.Notes ?? "";
+        _addresses.Text = string.Join(Environment.NewLine, dossier.Addresses ?? Array.Empty<string>());
         _formTitle.Text = "Modifier le dossier";
         _submit.Content = "Enregistrer";
     }

@@ -15,29 +15,38 @@ namespace Cabinet.App;
 /// <summary>
 /// « Courrier » : pour chaque e-mail déposé, le dossier, ce qu'il faut faire et un brouillon de réponse,
 /// préparés par l'IA locale. L'avocat relit, corrige et copie la réponse : l'outil n'envoie rien.
+/// L'analyse tourne dans la file de l'application (une à la fois), pas dans cette fenêtre.
 /// </summary>
 internal sealed class CourrierWindow : Window
 {
     private static readonly Uri OllamaDownload = new("https://ollama.com/download");
+    private static readonly TimeSpan DraftSaveDelay = TimeSpan.FromMilliseconds(800);
 
     private readonly Shell _shell;
     private readonly StackPanel _list = new() { Spacing = 4 };
     private readonly ContentControl _detail = new();
     private readonly StackPanel _aiBar = new() { Spacing = 8 };
-    private readonly HashSet<Guid> _analyzing = new();
+    private readonly StackPanel _notices = new() { Spacing = 6 };
+    private readonly DispatcherTimer _draftTimer;
     private Guid? _selected;
-    private bool _queueRunning;
+    private Guid? _shownDetail;
+    private TextBox? _draftBox;
+    private Guid? _draftOwner;
+    private bool _detailStale;
 
     public CourrierWindow(Shell shell)
     {
         _shell = shell;
         Title = "Courrier — Outil de cabinet";
         Width = 1100;
-        Height = 720;
+        Height = 740;
         MinWidth = 820;
         MinHeight = 480;
         Background = Ui.Brush("Paper");
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        _draftTimer = new DispatcherTimer { Interval = DraftSaveDelay };
+        _draftTimer.Tick += (_, _) => SaveDraft();
 
         var header = Ui.Column(4,
             new TextBlock { Text = "Courrier", Classes = { "title" } },
@@ -53,7 +62,7 @@ internal sealed class CourrierWindow : Window
         top.Children.Add(header);
         top.Children.Add(actions);
 
-        var dropHint = Ui.Text("Astuce : glissez un e-mail depuis Outlook sur votre Bureau, puis déposez le fichier ici.", 12, brush: "Ink3");
+        var dropHint = Ui.Text("Astuce : glissez l'e-mail depuis Outlook vers un dossier de votre ordinateur, puis déposez le fichier ici. L'outil vous proposera ensuite de supprimer ce fichier.", 12, brush: "Ink3");
         dropHint.Margin = new Thickness(20, 0, 20, 8);
 
         var listCard = Ui.Card(new ScrollViewer { Content = _list }, new Thickness(0, 0, 12, 0));
@@ -65,14 +74,14 @@ internal sealed class CourrierWindow : Window
         body.Children.Add(listCard);
         body.Children.Add(detailCard);
 
-        var aiCard = new Border { Margin = new Thickness(20, 0, 20, 10), Child = _aiBar };
+        var bars = new Border { Margin = new Thickness(20, 0, 20, 10), Child = Ui.Column(8, _aiBar, _notices) };
 
         Content = new DockPanel
         {
             Children =
             {
                 Dock(top, Avalonia.Controls.Dock.Top),
-                Dock(aiCard, Avalonia.Controls.Dock.Top),
+                Dock(bars, Avalonia.Controls.Dock.Top),
                 Dock(dropHint, Avalonia.Controls.Dock.Top),
                 body,
             },
@@ -82,13 +91,11 @@ internal sealed class CourrierWindow : Window
         AddHandler(DragDrop.DropEvent, OnDrop);
         AddHandler(DragDrop.DragOverEvent, (_, e) => e.DragEffects = DragDropEffects.Copy);
 
-        Opened += async (_, _) =>
-        {
-            await RefreshAiStatusAsync();
-            QueuePendingAnalyses();
-        };
+        Opened += async (_, _) => await RefreshAiStatusAsync();
+        Closing += (_, _) => SaveDraft();
 
         RefreshList();
+        RefreshDetail();
     }
 
     private static Control Dock(Control control, Dock dock)
@@ -98,6 +105,27 @@ internal sealed class CourrierWindow : Window
     }
 
     private MailDesk Desk => _shell.Desk;
+
+    private MailAnalysisQueue Queue => _shell.Queue;
+
+    /// <summary>Un e-mail commence ou finit d'être analysé (appelé sur le fil de l'interface).</summary>
+    public void OnItemChanged(Guid id)
+    {
+        RefreshList();
+        if (id != _selected)
+        {
+            return;
+        }
+
+        if (_draftBox is { IsFocused: true })
+        {
+            // L'avocat est en train d'écrire : on ne remplace pas la zone sous ses doigts.
+            _detailStale = true;
+            return;
+        }
+
+        RefreshDetail(force: true);
+    }
 
     // ---- Dépôt des e-mails -------------------------------------------------------------------------
 
@@ -109,37 +137,98 @@ internal sealed class CourrierWindow : Window
             AllowMultiple = true,
             FileTypeFilter = new[] { new FilePickerFileType("E-mails") { Patterns = new[] { "*.eml", "*.msg" } } },
         });
-        AddFiles(files.Select(f => f.TryGetLocalPath()).OfType<string>());
+        await AddFilesAsync(files.Select(f => f.TryGetLocalPath()).OfType<string>().ToList());
     }
 
     private void OnDrop(object? sender, DragEventArgs e)
     {
         var files = e.DataTransfer.TryGetFiles() ?? Array.Empty<IStorageItem>();
-        AddFiles(files.Select(f => f.TryGetLocalPath()).OfType<string>());
+        var paths = files.Select(f => f.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count == 0)
+        {
+            ShowNotice("Rien n'a pu être déposé. Glissez d'abord l'e-mail depuis Outlook vers un dossier, puis déposez le fichier ici.", "Warn");
+            return;
+        }
+
+        _ = AddFilesAsync(paths);
     }
 
-    private void AddFiles(IEnumerable<string> paths)
+    /// <summary>Lecture des fichiers hors du fil de l'interface (un e-mail mal formé ne fige pas la fenêtre).</summary>
+    private async Task AddFilesAsync(IReadOnlyList<string> paths)
     {
-        var refused = 0;
-        Guid? last = null;
-        foreach (var path in paths)
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var results = await Task.Run(() => paths.Select(path =>
         {
             try
             {
-                last = Desk.Add(MailReader.FromFile(path)).Id;
+                return (Path: path, Mail: (MailMessage?)MailReader.FromFile(path));
             }
             catch (Exception)
             {
-                refused++;
+                return (Path: path, Mail: (MailMessage?)null);
+            }
+        }).ToList());
+
+        var imported = new List<string>();
+        Guid? last = null;
+        foreach (var (path, mail) in results)
+        {
+            if (mail is not null)
+            {
+                last = Desk.Add(mail).Id;
+                imported.Add(path);
             }
         }
 
+        var refused = results.Count - imported.Count;
         if (refused > 0)
         {
-            ShowNotice($"{refused} fichier(s) n'ont pas pu être lus. Seuls les e-mails .eml et .msg sont acceptés.");
+            ShowNotice($"{refused} fichier(s) n'ont pas pu être lus. Seuls les e-mails .eml et .msg de moins de 60 Mo sont acceptés.", "Warn");
+        }
+
+        if (imported.Count > 0)
+        {
+            OfferSourceDeletion(imported);
         }
 
         AfterAdd(last);
+    }
+
+    /// <summary>Le fichier déposé reste en clair sur le disque (et parfois synchronisé) : on propose de le supprimer.</summary>
+    private void OfferSourceDeletion(IReadOnlyList<string> paths)
+    {
+        var text = Ui.Text(
+            $"{paths.Count} e-mail(s) ajouté(s). L'outil en garde une copie chiffrée ; le fichier d'origine reste lisible sur votre disque, et peut être synchronisé (OneDrive, iCloud). Vous pouvez le supprimer.",
+            12, brush: "Ink2");
+        StackPanel? notice = null;
+        var delete = Ui.Secondary("Supprimer les fichiers d'origine", () =>
+        {
+            var failed = 0;
+            foreach (var path in paths)
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception)
+                {
+                    failed++;
+                }
+            }
+
+            _notices.Children.Remove(notice!);
+            if (failed > 0)
+            {
+                ShowNotice($"{failed} fichier(s) n'ont pas pu être supprimés.", "Warn");
+            }
+        });
+        var keep = Ui.Secondary("Les garder", () => _notices.Children.Remove(notice!));
+        notice = Ui.Column(6, text, Ui.Row(8, delete, keep));
+        _notices.Children.Add(notice);
     }
 
     private void ShowPasteDialog()
@@ -149,7 +238,7 @@ internal sealed class CourrierWindow : Window
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Height = 320,
-            PlaceholderText = "Dans Outlook, ouvrez l'e-mail, sélectionnez tout (Cmd+A ou Ctrl+A), copiez, puis collez ici.",
+            PlaceholderText = "Dans Outlook, choisissez « Transférer » sur l'e-mail, sélectionnez tout le texte (en-têtes « De : » et « Objet : » compris), copiez-le, puis collez-le ici.",
         };
         var dialog = new Window
         {
@@ -164,7 +253,7 @@ internal sealed class CourrierWindow : Window
         {
             Padding = new Thickness(20),
             Child = Ui.Column(12,
-                Ui.Text("Collez le texte de l'e-mail, avec ses lignes « De : » et « Objet : » si possible.", 13, brush: "Ink2"),
+                Ui.Text("Collez le texte de l'e-mail, avec ses lignes « De : » et « Objet : » si possible : elles aident à retrouver le dossier.", 13, brush: "Ink2"),
                 box,
                 Ui.Row(8,
                     Ui.Primary("Analyser", () =>
@@ -185,76 +274,52 @@ internal sealed class CourrierWindow : Window
         if (last is { } id)
         {
             _selected = id;
+            Queue.Enqueue(id);
         }
 
         RefreshList();
+        RefreshDetail(force: true);
         _shell.Refresh();
-        QueuePendingAnalyses();
     }
 
-    // ---- Analyse par l'IA locale -----------------------------------------------------------------
+    // ---- Analyse ------------------------------------------------------------------------------------
 
-    /// <summary>Analyse, l'un après l'autre, les e-mails à traiter qui n'ont pas encore d'analyse.</summary>
-    private void QueuePendingAnalyses()
+    private async Task RequestAnalysisAsync(MailItem item)
     {
-        if (_queueRunning)
+        if (item.EditedDraft is not null && !await ConfirmAsync("Relancer l'analyse remplacera le brouillon que vous avez corrigé. Continuer ?"))
         {
             return;
         }
 
-        _queueRunning = true;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                while (Desk.Items.FirstOrDefault(i => i.Status == MailStatus.ATraiter && i.Analysis is null && i.AnalysisError is null) is { } next)
-                {
-                    await AnalyzeAsync(next.Id);
-                }
-            }
-            finally
-            {
-                _queueRunning = false;
-            }
-        });
+        Desk.ClearError(item.Id);
+        Queue.Enqueue(item.Id, discardEdits: true);
+        RefreshList();
+        RefreshDetail(force: true);
     }
 
-    private async Task AnalyzeAsync(Guid id)
+    private async Task<bool> ConfirmAsync(string question)
     {
-        lock (_analyzing)
+        var answer = false;
+        var dialog = new Window
         {
-            if (!_analyzing.Add(id))
-            {
-                return;
-            }
-        }
-
-        await Dispatcher.UIThread.InvokeAsync(RefreshAll);
-        try
+            Title = "Confirmation",
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            Background = Ui.Brush("Paper"),
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        dialog.Content = new Border
         {
-            await Desk.AnalyzeAsync(id, CancellationToken.None);
-        }
-        finally
-        {
-            lock (_analyzing)
-            {
-                _analyzing.Remove(id);
-            }
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                RefreshAll();
-                _shell.Refresh();
-            });
-        }
-    }
-
-    private bool IsAnalyzing(Guid id)
-    {
-        lock (_analyzing)
-        {
-            return _analyzing.Contains(id);
-        }
+            Padding = new Thickness(20),
+            Child = Ui.Column(14,
+                Ui.Text(question, 13),
+                Ui.Row(8,
+                    Ui.Primary("Continuer", () => { answer = true; dialog.Close(); }),
+                    Ui.Secondary("Annuler", dialog.Close))),
+        };
+        await dialog.ShowDialog(this);
+        return answer;
     }
 
     private async Task RefreshAiStatusAsync()
@@ -287,18 +352,21 @@ internal sealed class CourrierWindow : Window
             return;
         }
 
-        _aiBar.Children.Add(StatusLine("Run", $"IA locale prête ({ai.Model}). Tout est traité sur cet ordinateur."));
+        _aiBar.Children.Add(StatusLine("Run", $"IA locale prête ({ai.Model}). Tout est traité sur cet ordinateur. Le modèle se change dans les Réglages."));
     }
 
+    /// <summary>Après l'installation d'Ollama ou du modèle : les e-mails en erreur repassent dans la file.</summary>
     private async Task RetryAsync()
     {
         await RefreshAiStatusAsync();
-        foreach (var item in Desk.Items.Where(i => i.AnalysisError is not null && i.Status == MailStatus.ATraiter))
+        foreach (var item in Desk.Items.Where(i => i.AnalysisError is not null && i.Status == MailStatus.ATraiter && !string.IsNullOrWhiteSpace(i.Message.Body)))
         {
-            await AnalyzeAsync(item.Id);
+            Desk.ClearError(item.Id);
         }
 
-        QueuePendingAnalyses();
+        Queue.EnqueuePending();
+        RefreshList();
+        RefreshDetail(force: true);
     }
 
     private async Task PullAsync(OllamaClient ai, ProgressBar progress, TextBlock label, Button button)
@@ -314,16 +382,16 @@ internal sealed class CourrierWindow : Window
             }), CancellationToken.None);
             await RetryAsync();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            label.Text = "Téléchargement interrompu : " + ex.Message;
+            label.Text = "Téléchargement interrompu. Vérifiez la connexion Internet et l'espace disque, puis réessayez.";
             button.IsEnabled = true;
         }
     }
 
     private static Control StatusLine(string brush, string text)
     {
-        var dot = new Avalonia.Controls.Shapes.Ellipse { Width = 9, Height = 9, Fill = Ui.Brush(brush), VerticalAlignment = VerticalAlignment.Center };
+        var dot = new Avalonia.Controls.Shapes.Ellipse { Width = 9, Height = 9, Fill = Ui.Brush(brush), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 0, 0) };
         var line = Ui.Text(text, 12, brush: "Ink2");
         line.Margin = new Thickness(8, 0, 0, 0);
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
@@ -333,17 +401,16 @@ internal sealed class CourrierWindow : Window
         return grid;
     }
 
-    private void ShowNotice(string text)
+    private void ShowNotice(string text, string brush)
     {
-        _aiBar.Children.Insert(0, StatusLine("Warn", text));
+        Control? line = null;
+        var close = new Button { Content = "✕", Classes = { "flat" }, Foreground = Ui.Brush("Ink3") };
+        close.Click += (_, _) => _notices.Children.Remove(line!);
+        line = Ui.Row(8, StatusLine(brush, text), close);
+        _notices.Children.Add(line);
     }
 
-    // ---- Liste et détail --------------------------------------------------------------------------
-
-    private void RefreshAll()
-    {
-        RefreshList();
-    }
+    // ---- Liste et détail ----------------------------------------------------------------------------
 
     private void RefreshList()
     {
@@ -359,8 +426,26 @@ internal sealed class CourrierWindow : Window
         {
             _list.Children.Add(ListRow(item));
         }
+    }
 
-        RefreshDetail();
+    private string StateOf(MailItem item)
+    {
+        if (Queue.IsAnalyzing(item.Id))
+        {
+            return "Analyse en cours…";
+        }
+
+        if (Queue.IsWaiting(item.Id))
+        {
+            return "En attente d'analyse…";
+        }
+
+        if (item.Status == MailStatus.Traite)
+        {
+            return "Traité";
+        }
+
+        return item.Analysis?.Action ?? (item.AnalysisError is not null ? "Analyse impossible" : "À analyser");
     }
 
     private Control ListRow(MailItem item)
@@ -378,10 +463,7 @@ internal sealed class CourrierWindow : Window
         var subject = Ui.Text($"{item.Message.FromName} · {item.Message.Subject}", 12, brush: "Ink2");
         subject.TextWrapping = TextWrapping.NoWrap;
         subject.TextTrimming = TextTrimming.CharacterEllipsis;
-        var state = IsAnalyzing(item.Id)
-            ? "Analyse en cours…"
-            : item.Status == MailStatus.Traite ? "Traité" : item.Analysis?.Action ?? (item.AnalysisError is not null ? "Analyse impossible" : "En attente d'analyse");
-        var action = Ui.Text(state, 12, brush: item.Status == MailStatus.Traite ? "Ink3" : "Ink");
+        var action = Ui.Text(StateOf(item), 12, brush: item.Status == MailStatus.Traite ? "Ink3" : "Ink");
         action.TextWrapping = TextWrapping.NoWrap;
         action.TextTrimming = TextTrimming.CharacterEllipsis;
 
@@ -403,14 +485,36 @@ internal sealed class CourrierWindow : Window
         };
         row.PointerPressed += (_, _) =>
         {
+            SaveDraft();
             _selected = item.Id;
             RefreshList();
+            RefreshDetail(force: true);
         };
         return row;
     }
 
-    private void RefreshDetail()
+    private void SaveDraft()
     {
+        _draftTimer.Stop();
+        if (_draftBox is { } box && _draftOwner is { } owner)
+        {
+            Desk.UpdateDraft(owner, box.Text ?? "");
+        }
+    }
+
+    private void RefreshDetail(bool force = false)
+    {
+        if (!force && _shownDetail == _selected)
+        {
+            return;
+        }
+
+        SaveDraft();
+        _shownDetail = _selected;
+        _draftBox = null;
+        _draftOwner = null;
+        _detailStale = false;
+
         var item = Desk.Items.FirstOrDefault(i => i.Id == _selected);
         if (item is null)
         {
@@ -419,6 +523,7 @@ internal sealed class CourrierWindow : Window
         }
 
         var dossiers = _shell.Session.ActiveDossiers;
+        var dossier = dossiers.FirstOrDefault(d => d.Id == item.DossierId);
         var dossierChoice = new ComboBox { MinWidth = 260 };
         dossierChoice.ItemsSource = dossiers.Select(d => d.Name).Prepend("Dossier non identifié").ToList();
         dossierChoice.SelectedIndex = dossiers.ToList().FindIndex(d => d.Id == item.DossierId) + 1;
@@ -430,14 +535,11 @@ internal sealed class CourrierWindow : Window
                 return;
             }
 
+            SaveDraft();
             Desk.SetDossier(item.Id, chosen?.Id);
-            if (chosen is not null && item.Message.FromAddress.Length > 0)
-            {
-                // Les prochains e-mails de cet expéditeur seront rangés dans ce dossier.
-                _shell.Session.AddAddress(chosen.Id, item.Message.FromAddress);
-            }
-
+            Queue.EnqueuePending();
             RefreshList();
+            RefreshDetail(force: true);
         };
 
         var panel = Ui.Column(14);
@@ -446,40 +548,76 @@ internal sealed class CourrierWindow : Window
         panel.Children.Add(Ui.Column(4, Ui.Text(item.Message.Subject, 17, bold: true), Ui.Text(meta, 12, brush: "Ink2")));
         panel.Children.Add(Ui.Row(10, Ui.Text("Dossier", 13, brush: "Ink2"), dossierChoice));
 
-        if (IsAnalyzing(item.Id))
+        if (dossier is not null && item.Message.FromAddress.Length > 0 && !MailDesk.IsKnownSender(item.Message, dossier))
         {
-            panel.Children.Add(Ui.Row(10, new ProgressBar { IsIndeterminate = true, Width = 120 }, Ui.Text("L'IA locale lit l'e-mail…", 13, brush: "Ink2")));
+            var learn = Ui.Secondary($"Ranger automatiquement les e-mails de {item.Message.FromAddress} dans ce dossier", () =>
+            {
+                _shell.Session.AddAddress(dossier.Id, item.Message.FromAddress);
+                RefreshDetail(force: true);
+            });
+            learn.FontSize = 12;
+            panel.Children.Add(learn);
         }
-        else if (item.Analysis is { } analysis)
+
+        if (MailDesk.IsUnexpectedSender(item.Message, dossier))
         {
+            panel.Children.Add(Warning("Expéditeur inconnu pour ce dossier. Vérifiez son identité avant de répondre, et ne transmettez aucune information du dossier en cas de doute."));
+        }
+
+        if (Queue.IsWaiting(item.Id))
+        {
+            var label = Queue.IsAnalyzing(item.Id) ? "L'IA locale lit l'e-mail…" : "En attente : un autre e-mail est en cours d'analyse.";
+            panel.Children.Add(Ui.Row(10, new ProgressBar { IsIndeterminate = true, Width = 120 }, Ui.Text(label, 13, brush: "Ink2")));
+        }
+
+        if (item.Analysis is { } analysis)
+        {
+            if (item.IsOutdated)
+            {
+                panel.Children.Add(Warning("Cette analyse a été faite pour un autre dossier. Relancez-la avant de répondre."));
+            }
+
             var urgency = analysis.Urgency switch { Urgency.Haute => "Urgent", Urgency.Basse => "Peu urgent", _ => "Normal" };
-            var deadline = analysis.Deadline is { } d ? $" · échéance le {d.ToString("d MMMM yyyy", Format.French)}" : "";
             panel.Children.Add(Section("À faire", Ui.Text(analysis.Action, 15, bold: true)));
-            panel.Children.Add(Ui.Text($"{urgency}{deadline}", 12, brush: analysis.Urgency == Urgency.Haute ? "Warn" : "Ink2"));
+            panel.Children.Add(Ui.Text(urgency, 12, brush: analysis.Urgency == Urgency.Haute ? "Warn" : "Ink2"));
+            if (analysis.Deadline is { } deadline)
+            {
+                panel.Children.Add(Ui.Text($"Échéance repérée par l'IA, à vérifier : {deadline.ToString("d MMMM yyyy", Format.French)}", 12, brush: "Warn"));
+            }
+
             panel.Children.Add(Section("Résumé", Ui.Text(analysis.Summary, 13)));
 
             var draft = new TextBox { Text = item.Draft, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 200 };
+            draft.TextChanged += (_, _) =>
+            {
+                _draftTimer.Stop();
+                _draftTimer.Start();
+            };
             draft.LostFocus += (_, _) =>
             {
-                if (draft.Text != item.Draft)
+                SaveDraft();
+                if (_detailStale)
                 {
-                    Desk.UpdateDraft(item.Id, draft.Text ?? "");
+                    RefreshDetail(force: true);
                 }
             };
+            _draftBox = draft;
+            _draftOwner = item.Id;
+
             var copied = Ui.Text("", 12, brush: "Run");
             panel.Children.Add(Section("Brouillon de réponse", Ui.Column(8,
-                Ui.Text("Les passages entre crochets [ ] sont à compléter.", 12, brush: "Ink3"),
+                Ui.Text("Brouillon à relire. Les passages entre crochets [ ] sont à compléter.", 12, brush: "Ink3"),
                 draft,
                 Ui.Row(8,
                     Ui.Primary("Copier la réponse", () => _ = CopyAsync(draft.Text ?? "", copied)),
                     StatusButton(item),
-                    Ui.Secondary("Relancer l'analyse", () => _ = AnalyzeAsync(item.Id))),
+                    Ui.Secondary("Relancer l'analyse", () => _ = RequestAnalysisAsync(item))),
                 copied)));
         }
-        else
+        else if (!Queue.IsWaiting(item.Id))
         {
-            panel.Children.Add(Ui.Text(item.AnalysisError ?? "En attente d'analyse par l'IA locale.", 13, brush: item.AnalysisError is null ? "Ink2" : "Warn"));
-            panel.Children.Add(Ui.Secondary("Analyser maintenant", () => _ = AnalyzeAsync(item.Id)));
+            panel.Children.Add(Ui.Text(item.AnalysisError ?? "Cet e-mail n'a pas encore été analysé.", 13, brush: item.AnalysisError is null ? "Ink2" : "Warn"));
+            panel.Children.Add(Ui.Row(8, Ui.Secondary("Analyser maintenant", () => _ = RequestAnalysisAsync(item)), StatusButton(item)));
         }
 
         panel.Children.Add(new Expander
@@ -494,22 +632,52 @@ internal sealed class CourrierWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
         });
 
-        panel.Children.Add(Ui.Row(8,
-            item.Analysis is null ? StatusButton(item) : new Control(),
-            Ui.Secondary("Retirer de la liste", () => { Desk.Remove(item.Id); _selected = null; RefreshList(); _shell.Refresh(); })));
+        panel.Children.Add(Ui.Secondary("Retirer de la liste", () =>
+        {
+            Desk.Remove(item.Id);
+            _selected = null;
+            _draftBox = null;
+            _draftOwner = null;
+            RefreshList();
+            RefreshDetail(force: true);
+            _shell.Refresh();
+        }));
 
         _detail.Content = panel;
     }
 
     private static Control Section(string label, Control content) => Ui.Column(4, Ui.Label(label), content);
 
+    private static Control Warning(string text) => new Border
+    {
+        Background = new SolidColorBrush(Color.Parse("#FBEBE5")),
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(12, 8),
+        Child = Ui.Text(text, 12, brush: "Warn"),
+    };
+
     private Button StatusButton(MailItem item)
         => item.Status == MailStatus.ATraiter
-            ? Ui.Secondary("Marquer comme traité", () => { Desk.SetStatus(item.Id, MailStatus.Traite); _selected = null; RefreshList(); _shell.Refresh(); })
-            : Ui.Secondary("Remettre à traiter", () => { Desk.SetStatus(item.Id, MailStatus.ATraiter); RefreshList(); _shell.Refresh(); });
+            ? Ui.Secondary("Marquer comme traité", () =>
+            {
+                SaveDraft();
+                Desk.SetStatus(item.Id, MailStatus.Traite);
+                _selected = null;
+                RefreshList();
+                RefreshDetail(force: true);
+                _shell.Refresh();
+            })
+            : Ui.Secondary("Remettre à traiter", () =>
+            {
+                Desk.SetStatus(item.Id, MailStatus.ATraiter);
+                RefreshList();
+                RefreshDetail(force: true);
+                _shell.Refresh();
+            });
 
     private async Task CopyAsync(string text, TextBlock confirmation)
     {
+        SaveDraft();
         if (Clipboard is { } clipboard)
         {
             await clipboard.SetTextAsync(text);

@@ -39,12 +39,24 @@ internal sealed class Shell
 
     public Cabinet.Ai.OllamaClient? Ai => _services.Ai;
 
+    /// <summary>La file d'analyse du courrier : une seule pour l'application, arrêtée à la fermeture.</summary>
+    public MailAnalysisQueue Queue { get; private set; } = null!;
+
     public void Start()
     {
+        Queue = new MailAnalysisQueue(Desk);
+        Queue.Changed += id => Dispatcher.UIThread.Post(() =>
+        {
+            _courrierWindow?.OnItemChanged(id);
+            Refresh();
+        });
+        Queue.EnqueuePending();
+
         _desktop.ShutdownRequested += (_, _) => SaveQuietly();
         _desktop.Exit += (_, _) =>
         {
             SaveQuietly();
+            Queue.Dispose();
             _services.Dispose();
         };
 
@@ -174,6 +186,15 @@ internal sealed class Shell
         _desktop.Shutdown();
     }
 
+    /// <summary>Après un changement de modèle dans les réglages.</summary>
+    public void ApplyAiModel()
+    {
+        if (Ai is { } ai)
+        {
+            ai.Model = AppServices.ModelFor(Session.Settings);
+        }
+    }
+
     /// <summary>Après un changement de dossiers ou de réglages.</summary>
     public void Refresh()
     {
@@ -203,6 +224,7 @@ internal sealed class Shell
         if (_ticks++ % 30 == 0)
         {
             _reminder = ComputeReminder();
+            Queue.EnqueuePending();
         }
 
         Refresh();
