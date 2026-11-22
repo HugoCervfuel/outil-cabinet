@@ -312,3 +312,24 @@ pourra tourner à côté (moteur local appelé depuis l'application) sans remett
   intégration continue Windows est nécessaire. Le choix se fait avec l'utilisateur avant le développement.
 - **Tests réels avec Outlook** : uniquement sur le poste de l'utilisateur, via l'outil de
   diagnostic puis les versions successives. Le développeur n'a jamais accès au poste.
+
+## 12. Évolution du 22 novembre 2026 : Windows, Mac, puis téléphone
+
+Décisions de l'utilisateur, prises après la rédaction initiale :
+
+- **Plateformes** : l'outil doit fonctionner sur le PC Windows du cabinet **et sur un Mac** (Outlook
+  sur les deux), puis plus tard sur un téléphone **Android**. Priorité : les ordinateurs ; premier
+  essai demandé sur Mac.
+- **Partage entre appareils (option A retenue)** : les données sont chiffrées sur l'appareil, la
+  clé ne quitte jamais les appareils de l'utilisateur, et un serveur relais transmet sans pouvoir
+  lire. À construire après la première version.
+- **Conséquence technique** *(choix de Claude)* : l'interface passe de WPF (Windows seul) à
+  **Avalonia** (C#, Windows et macOS avec le même code, Android possible ensuite). La logique
+  existante est conservée. Le diagnostic Windows reste valable pour le PC du cabinet.
+- **Sur Mac**, la lecture du titre de la fenêtre active demande l'autorisation « Accessibilité »
+  (Réglages Système → Confidentialité et sécurité). Sans elle, l'outil ne voit que le nom de
+  l'application et les dossiers ne peuvent pas être reconnus automatiquement.
+- **Première version (v1, ordinateurs)** : pastille, suivi d'activité, liste des dossiers,
+  rattachement par mots-clés, récapitulatif du jour avec copie pour Kleos, stockage local chiffré,
+  pause et exclusions. Outlook, sauvegarde avec clé de secours, synchronisation et téléphone
+  viennent ensuite.
