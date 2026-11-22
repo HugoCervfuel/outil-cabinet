@@ -73,7 +73,7 @@ outil-cabinet/
 
 ---
 
-### Tâche 1 : squelette de la solution, `SafeText` et garde « aucun réseau »
+### Task 1: squelette de la solution, `SafeText` et garde « aucun réseau »
 
 **Fichiers :**
 - Créer : `global.json`, `Directory.Build.props`, `.gitignore` (gabarit `dotnet new gitignore`), `outil-cabinet.sln`
@@ -133,7 +133,7 @@ git add -A && git commit -m "Squelette de la solution, SafeText et garde réseau
 
 ---
 
-### Tâche 2 : décodeurs purs (antivirus, règle Outlook, synchronisation cloud)
+### Task 2: décodeurs purs (antivirus, règle Outlook, synchronisation cloud)
 
 **Fichiers :**
 - Créer : `src/Cabinet.Diagnostic.Core/Model.cs` (enums de cette tâche), `AntivirusStateDecoder.cs`, `GuardPolicyDecoder.cs`, `CloudSyncDetector.cs`
@@ -214,7 +214,7 @@ Attendu : tous les tests réussis.
 
 ---
 
-### Tâche 3 : modèle du rapport et verdicts
+### Task 3: modèle du rapport et verdicts
 
 **Fichiers :**
 - Modifier : `src/Cabinet.Diagnostic.Core/Model.cs`
@@ -304,7 +304,7 @@ public void Outlook_DeniedOrTimedOut_NeedsAddIn(GuardedAccessOutcome o) => Asser
 
 ---
 
-### Tâche 4 : rapport texte et orchestration (avec délai maximal)
+### Task 4: rapport texte et orchestration (avec délai maximal)
 
 **Fichiers :**
 - Créer : `src/Cabinet.Diagnostic.Core/ReportFormatter.cs`, `Probes.cs`, `TimedCall.cs`, `DiagnosticRunner.cs`
@@ -411,7 +411,7 @@ public sealed class DiagnosticRunner {
 
 ---
 
-### Tâche 5 : sondes Windows
+### Task 5: sondes Windows
 
 **Fichiers :**
 - Créer : `src/Cabinet.Diagnostic.Windows/Cabinet.Diagnostic.Windows.csproj` (net10.0-windows, `AllowUnsafeBlocks`, `EnableWindowsTargeting`, référence `System.Management` 10.0.x, référence de projet Core)
@@ -451,7 +451,7 @@ public sealed class DiagnosticRunner {
 
 ---
 
-### Tâche 6 : application WPF
+### Task 6: application WPF
 
 **Fichiers :**
 - Créer : `src/Cabinet.Diagnostic/Cabinet.Diagnostic.csproj` (`WinExe`, net10.0-windows, `UseWPF`, `AssemblyName=Diagnostic-OutilCabinet`, `RuntimeIdentifier=win-x64`, `SelfContained`, `PublishSingleFile`, `EnableCompressionInSingleFile`, `IncludeNativeLibrariesForSelfExtract`, `ApplicationManifest=app.manifest`), `app.manifest` (`asInvoker`, DPI `PerMonitorV2`), `App.xaml(.cs)`, `MainWindow.xaml(.cs)`
@@ -476,7 +476,7 @@ Tous les boutons sont désactivés pendant un test en cours. Fermer la fenêtre 
 
 ---
 
-### Tâche 7 : intégration continue Windows et publication
+### Task 7: intégration continue Windows et publication
 
 **Fichiers :**
 - Créer : `.github/workflows/build.yml`
