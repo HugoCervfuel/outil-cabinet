@@ -38,5 +38,20 @@ PLIST
 
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
-(cd "$OUT" && ditto -c -k --sequesterRsrc --keepParent "Outil de cabinet.app" "OutilCabinet-$RID.zip")
-echo "Paquet prêt : $OUT/OutilCabinet-$RID.zip"
+
+# Image disque classique : l'application et un raccourci vers Applications, à glisser l'une sur l'autre.
+STAGE="$OUT/dmg"
+mkdir -p "$STAGE"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+DMG="$OUT/OutilCabinet-$RID.dmg"
+hdiutil create -volname "Outil de cabinet" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+hdiutil verify "$DMG"
+
+# Vérification : l'image s'ouvre et l'application qu'elle contient est intacte.
+MOUNT="$(mktemp -d)"
+hdiutil attach "$DMG" -mountpoint "$MOUNT" -nobrowse -readonly
+codesign --verify --deep --strict "$MOUNT/Outil de cabinet.app"
+test -x "$MOUNT/Outil de cabinet.app/Contents/MacOS/OutilCabinet"
+hdiutil detach "$MOUNT"
+echo "Paquet prêt : $DMG"
