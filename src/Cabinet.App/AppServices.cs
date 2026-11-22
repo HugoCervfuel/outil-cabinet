@@ -9,10 +9,11 @@ internal sealed class AppServices : IDisposable
 {
     private readonly FileStream _instanceLock;
 
-    private AppServices(WorkSession session, MailDesk desk, OllamaClient? ai, FileStream instanceLock, bool demo)
+    private AppServices(WorkSession session, MailDesk desk, InstructionDesk instruction, OllamaClient? ai, FileStream instanceLock, bool demo)
     {
         Session = session;
         Desk = desk;
+        Instruction = instruction;
         Ai = ai;
         _instanceLock = instanceLock;
         Demo = demo;
@@ -21,6 +22,8 @@ internal sealed class AppServices : IDisposable
     public WorkSession Session { get; }
 
     public MailDesk Desk { get; }
+
+    public InstructionDesk Instruction { get; }
 
     /// <summary>L'IA locale (absente en mode démonstration, où des réponses fictives la remplacent).</summary>
     public OllamaClient? Ai { get; }
@@ -62,12 +65,15 @@ internal sealed class AppServices : IDisposable
         var ai = demo ? null : new OllamaClient(ModelFor(session.Settings));
         IMailAssistant assistant = ai is null ? new DemoAssistant() : ai;
         var desk = new MailDesk(store, () => session.Dossiers, assistant, () => DateTimeOffset.Now);
+        ITextModel textModel = ai is null ? new DemoTextModel() : ai;
+        var instruction = new InstructionDesk(store, () => session.Dossiers, textModel, () => DateTimeOffset.Now);
         if (demo)
         {
             DemoData.SeedMail(desk, session);
+            DemoData.SeedPieces(instruction, session);
         }
 
-        return new AppServices(session, desk, ai, instanceLock, demo);
+        return new AppServices(session, desk, instruction, ai, instanceLock, demo);
     }
 
     public void Dispose()
@@ -105,6 +111,39 @@ internal sealed class DemoAssistant : IMailAssistant
     }
 }
 
+/// <summary>Réponses fictives pour l'instruction, en mode démonstration.</summary>
+internal sealed class DemoTextModel : ITextModel
+{
+    public async Task<string> GenerateAsync(string system, string user, bool json, CancellationToken cancellationToken)
+    {
+        await Task.Delay(300, cancellationToken);
+        if (json)
+        {
+            return user.Contains("Expertise", StringComparison.Ordinal)
+                ? """{"resume":"L'expert judiciaire constate des infiltrations dans la cave et chiffre les travaux de reprise à 18 400 euros HT. Il retient une vétusté de 20 %.","evenements":[{"date":"2025-02-03","fait":"Réunion d'expertise contradictoire sur place","page":1},{"date":"2025-06-12","fait":"Dépôt du rapport d'expertise","page":4}]}"""
+                : """{"resume":"Axa refuse sa garantie en invoquant l'exclusion pour défaut d'entretien.","evenements":[{"date":"2024-11-18","fait":"Déclaration de sinistre par M. Martin","page":1},{"date":"2025-01-07","fait":"Refus de garantie d'Axa","page":1}]}""";
+        }
+
+        if (user.Contains("Question de l'avocat", StringComparison.Ordinal))
+        {
+            return "L'expert chiffre les travaux de reprise à 18 400 euros HT et retient une vétusté de 20 % [Expertise judiciaire.pdf, p. 3]. "
+                   + "Il rattache les infiltrations à un défaut d'étanchéité de la façade, et non à un défaut d'entretien [Expertise judiciaire.pdf, p. 2].";
+        }
+
+        if (user.Contains("Document à préparer", StringComparison.Ordinal))
+        {
+            return "Cher Monsieur,\n\nL'expert judiciaire a déposé son rapport le 12 juin 2025. Il chiffre les travaux de reprise à 18 400 euros HT et retient une vétusté de 20 % [Expertise judiciaire.pdf, p. 3].\n\n"
+                   + "Surtout, il rattache les infiltrations à un défaut d'étanchéité de la façade, ce qui contredit l'exclusion invoquée par Axa [Courrier Axa.pdf, p. 1].\n\n"
+                   + "Je vous propose d'en discuter lors d'un rendez-vous le [date à convenir].\n\nJe vous prie de croire, Cher Monsieur, en l'assurance de mes sentiments dévoués.";
+        }
+
+        return "Les faits\nM. Martin a déclaré un sinistre (infiltrations dans la cave) le 18 novembre 2024 [Courrier Axa.pdf, p. 1]. Axa a refusé sa garantie le 7 janvier 2025 pour défaut d'entretien.\n\n"
+               + "Les points en litige\nL'application de l'exclusion pour défaut d'entretien, et le montant de l'indemnité (vétusté de 20 % retenue par l'expert).\n\n"
+               + "Les pièces importantes\nLe rapport d'expertise judiciaire [Expertise judiciaire.pdf, p. 2-4].\n\n"
+               + "Les points à vérifier\nLa date exacte de la dernière visite d'entretien de la façade [à demander au client].";
+    }
+}
+
 internal static class DemoData
 {
     public static void Seed(Journal journal)
@@ -138,6 +177,27 @@ internal static class DemoData
             S(160, 9, "Finder", "Documents"),
             S(170, 25, "Google Chrome", "Légifrance - Code des assurances"),
         }, null));
+    }
+
+    public static void SeedPieces(InstructionDesk instruction, WorkSession session)
+    {
+        if (session.Dossiers.FirstOrDefault(d => d.Name.StartsWith("MARTIN", StringComparison.Ordinal)) is not { } martin
+            || instruction.Pieces(martin.Id).Count > 0)
+        {
+            return;
+        }
+
+        instruction.AddPiece(martin.Id, "Expertise judiciaire.pdf", new[]
+        {
+            new PiecePage(1, "Rapport d'expertise judiciaire. Réunion contradictoire sur place le 3 février 2025."),
+            new PiecePage(2, "Les infiltrations proviennent d'un défaut d'étanchéité de la façade."),
+            new PiecePage(3, "Coût des travaux de reprise : 18 400 euros HT. Vétusté retenue : 20 %."),
+            new PiecePage(4, "Rapport déposé le 12 juin 2025."),
+        });
+        instruction.AddPiece(martin.Id, "Courrier Axa.pdf", new[]
+        {
+            new PiecePage(1, "Suite à votre déclaration du 18 novembre 2024, nous refusons notre garantie (exclusion pour défaut d'entretien). Le 7 janvier 2025."),
+        });
     }
 
     public static void SeedMail(MailDesk desk, WorkSession session)

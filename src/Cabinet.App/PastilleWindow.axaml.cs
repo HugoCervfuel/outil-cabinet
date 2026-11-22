@@ -64,6 +64,7 @@ public partial class PastilleWindow : Window
             {
                 Item("Ouvrir le panneau", shell.ShowPanel),
                 Item("Courrier", shell.ShowCourrier),
+                Item("Instruction des dossiers", shell.ShowInstruction),
                 Item("Ma journée", () => shell.ShowRecap()),
                 Item("Pause / Reprendre", shell.TogglePause),
                 new Separator(),

@@ -25,7 +25,7 @@ public sealed record OllamaStatus(bool Running, IReadOnlyList<string> Models)
 /// Client de l'IA locale Ollama. Il ne parle qu'à cet ordinateur (127.0.0.1) : toute autre adresse est refusée,
 /// et aucun proxy n'est utilisé. Les e-mails analysés ne quittent donc jamais le poste.
 /// </summary>
-public sealed class OllamaClient : IMailAssistant, IDisposable
+public sealed class OllamaClient : IMailAssistant, ITextModel, IDisposable
 {
     public static readonly Uri DefaultEndpoint = new("http://127.0.0.1:11434/");
 
@@ -42,6 +42,8 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
           "brouillon":{"type":"string"}},
          "required":["resume","action","urgence","echeance","brouillon"]}
         """).RootElement.Clone();
+
+    private static readonly JsonElement JsonFormat = JsonDocument.Parse("\"json\"").RootElement.Clone();
 
     private readonly HttpClient _http;
     private string _model = "";
@@ -180,6 +182,27 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
         return chat?.Message?.Content ?? throw new OllamaException("Réponse vide de l'IA locale.");
     }
 
+    /// <summary>Texte libre (synthèses, réponses, premiers jets) ou JSON simple (lecture des pièces).</summary>
+    public async Task<string> GenerateAsync(string system, string user, bool json, CancellationToken cancellationToken)
+    {
+        var request = new ChatRequest(
+            Model,
+            new[] { new ChatMessage("system", system), new ChatMessage("user", user) },
+            Stream: false,
+            Format: json ? JsonFormat : null,
+            new ChatOptions(Temperature: 0.3, ContextLength: 8192, MaxTokens: 3000),
+            KeepAlive: "30m");
+
+        using var response = await _http.PostAsJsonAsync("api/chat", request, Json, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new OllamaException(await ReadErrorAsync(response, cancellationToken));
+        }
+
+        var chat = await response.Content.ReadFromJsonAsync<ChatResponse>(Json, cancellationToken);
+        return chat?.Message?.Content ?? throw new OllamaException("Réponse vide de l'IA locale.");
+    }
+
     /// <summary>Télécharge le modèle (une seule fois). Seul le modèle transite, aucune donnée du cabinet.</summary>
     public async Task PullAsync(IProgress<double>? progress, CancellationToken cancellationToken)
     {
@@ -233,7 +256,7 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages,
         [property: JsonPropertyName("stream")] bool Stream,
-        [property: JsonPropertyName("format")] JsonElement Format,
+        [property: JsonPropertyName("format")] JsonElement? Format,
         [property: JsonPropertyName("options")] ChatOptions Options,
         [property: JsonPropertyName("keep_alive")] string KeepAlive);
 

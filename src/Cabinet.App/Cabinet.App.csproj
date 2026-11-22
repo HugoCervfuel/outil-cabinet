@@ -24,5 +24,6 @@
     <ProjectReference Include="..\Cabinet.Platform\Cabinet.Platform.csproj" />
     <ProjectReference Include="..\Cabinet.Mail\Cabinet.Mail.csproj" />
     <ProjectReference Include="..\Cabinet.Ai\Cabinet.Ai.csproj" />
+    <ProjectReference Include="..\Cabinet.Documents\Cabinet.Documents.csproj" />
   </ItemGroup>
 </Project>

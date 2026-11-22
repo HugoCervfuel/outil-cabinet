@@ -180,3 +180,41 @@ public class OllamaClientTests
         }
     }
 }
+
+public class OllamaTextGenerationTests
+{
+    private sealed class Capture : HttpMessageHandler
+    {
+        public string? Body { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"message\":{\"role\":\"assistant\",\"content\":\"Synthèse\"},\"done\":true}"),
+            };
+        }
+    }
+
+    [Fact]
+    public async Task Generate_FreeText_HasNoFormat()
+    {
+        var handler = new Capture();
+        using var client = new OllamaClient("gemma3:12b", handler: handler);
+        Assert.Equal("Synthèse", await client.GenerateAsync("s", "u", json: false, CancellationToken.None));
+        using var json = System.Text.Json.JsonDocument.Parse(handler.Body!);
+        Assert.False(json.RootElement.TryGetProperty("format", out _));
+        Assert.True(json.RootElement.GetProperty("options").GetProperty("num_predict").GetInt32() >= 2000);
+    }
+
+    [Fact]
+    public async Task Generate_Json_AsksForJson()
+    {
+        var handler = new Capture();
+        using var client = new OllamaClient("gemma3:12b", handler: handler);
+        await client.GenerateAsync("s", "u", json: true, CancellationToken.None);
+        using var json = System.Text.Json.JsonDocument.Parse(handler.Body!);
+        Assert.Equal("json", json.RootElement.GetProperty("format").GetString());
+    }
+}

@@ -65,6 +65,7 @@ jobs:
           dotnet test tests/Cabinet.Diagnostic.Core.Tests -c Release
           dotnet test tests/Cabinet.Mail.Tests -c Release
           dotnet test tests/Cabinet.Ai.Tests -c Release
+          dotnet test tests/Cabinet.Documents.Tests -c Release
 
       - name: Application Mac (Apple Silicon)
         run: scripts/package-mac.sh osx-arm64
