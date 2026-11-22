@@ -3,17 +3,17 @@ name: build
 on:
   push:
     branches: ["**"]
-    tags: ["diagnostic-v*"]
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
 
 jobs:
-  build:
+  windows:
     runs-on: windows-latest
-    env:
-      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
-      DOTNET_NOLOGO: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -21,19 +21,52 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Tests (Core et Windows)
+      - name: Tests (tous les projets)
         run: dotnet test outil-cabinet.slnx -c Release
 
-      - name: Publication de l'exécutable
-        run: dotnet publish src/Cabinet.Diagnostic -c Release -o publish
+      - name: Diagnostic Windows
+        run: dotnet publish src/Cabinet.Diagnostic -c Release -o publish/diagnostic
+
+      - name: Outil de cabinet pour Windows
+        run: dotnet publish src/Cabinet.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win
 
       - uses: actions/upload-artifact@v4
         with:
           name: Diagnostic-OutilCabinet
-          path: publish/Diagnostic-OutilCabinet.exe
+          path: publish/diagnostic/Diagnostic-OutilCabinet.exe
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/diagnostic-v')
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: publish/Diagnostic-OutilCabinet.exe
+          name: OutilCabinet-Windows
+          path: publish/win/OutilCabinet.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Tests (cœur et observation du poste sur macOS)
+        run: |
+          dotnet test tests/Cabinet.Core.Tests -c Release
+          dotnet test tests/Cabinet.Platform.Tests -c Release
+          dotnet test tests/Cabinet.Diagnostic.Core.Tests -c Release
+
+      - name: Application Mac (Apple Silicon)
+        run: scripts/package-mac.sh osx-arm64
+
+      - name: Application Mac (Intel)
+        run: scripts/package-mac.sh osx-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OutilCabinet-Mac-AppleSilicon
+          path: publish/mac-osx-arm64/OutilCabinet-osx-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OutilCabinet-Mac-Intel
+          path: publish/mac-osx-x64/OutilCabinet-osx-x64.zip

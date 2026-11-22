@@ -1,0 +1,31 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Cabinet.App.PastilleWindow"
+        Title="Outil de cabinet"
+        WindowDecorations="None"
+        Topmost="True"
+        ShowInTaskbar="False"
+        CanResize="False"
+        ShowActivated="False"
+        SizeToContent="WidthAndHeight"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent">
+  <Border x:Name="Pill" Margin="12" CornerRadius="22" Background="White"
+          BoxShadow="0 6 18 0 #3A142A3F" Padding="4,5,8,5">
+    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+      <Border x:Name="Grip" Width="14" Background="Transparent" Cursor="SizeAll" ToolTip.Tip="Déplacer">
+        <TextBlock Text="⋮" FontSize="16" Foreground="{StaticResource Ink3}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <Button x:Name="OpenButton" Classes="flat" ToolTip.Tip="Ouvrir le panneau">
+        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Ellipse x:Name="Dot" Width="9" Height="9" Fill="{StaticResource Run}" VerticalAlignment="Center"/>
+          <TextBlock x:Name="LabelText" FontWeight="SemiBold" FontSize="13" MaxWidth="190" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+          <TextBlock x:Name="ElapsedText" FontSize="13" FontFeatures="tnum" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Button>
+      <Border Width="1" Height="16" Background="{StaticResource Line}"/>
+      <Button x:Name="PauseButton" Classes="round" Content="❚❚" ToolTip.Tip="Pause"/>
+      <TextBlock x:Name="DayText" FontSize="12" Foreground="{StaticResource Ink2}" VerticalAlignment="Center" Margin="2,0,0,0"/>
+    </StackPanel>
+  </Border>
+</Window>

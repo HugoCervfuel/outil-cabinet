@@ -1,0 +1,86 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="Paper" Color="#F6F4EF"/>
+    <SolidColorBrush x:Key="Card" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Line" Color="#E4E0D7"/>
+    <SolidColorBrush x:Key="Ink" Color="#1D2B3A"/>
+    <SolidColorBrush x:Key="Ink2" Color="#4A5A6B"/>
+    <SolidColorBrush x:Key="Ink3" Color="#7D8A97"/>
+    <SolidColorBrush x:Key="Accent" Color="#1F3A5F"/>
+    <SolidColorBrush x:Key="Brass" Color="#B8862F"/>
+    <SolidColorBrush x:Key="Run" Color="#2E9D6A"/>
+    <SolidColorBrush x:Key="Warn" Color="#C2532B"/>
+    <SolidColorBrush x:Key="Amber" Color="#D99A2B"/>
+    <SolidColorBrush x:Key="Grey" Color="#A3ACB6"/>
+  </Styles.Resources>
+
+  <Style Selector="Window">
+    <Setter Property="FontFamily" Value="fonts:Inter#Inter, $Default"/>
+    <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+  </Style>
+
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource Ink3}"/>
+    <Setter Property="Margin" Value="0,0,0,6"/>
+  </Style>
+
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="20"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+
+  <Style Selector="TextBlock.muted">
+    <Setter Property="Foreground" Value="{StaticResource Ink2}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource Card}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="12"/>
+    <Setter Property="Padding" Value="16"/>
+  </Style>
+
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource Accent}"/>
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Padding" Value="14,7"/>
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#2A4D7A"/>
+    <Setter Property="Foreground" Value="White"/>
+  </Style>
+
+  <Style Selector="Button.secondary">
+    <Setter Property="Background" Value="#FAF9F6"/>
+    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Padding" Value="12,6"/>
+  </Style>
+
+  <Style Selector="Button.flat">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="4,2"/>
+  </Style>
+  <Style Selector="Button.flat:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#F1EFE9"/>
+  </Style>
+
+  <Style Selector="Button.round">
+    <Setter Property="Background" Value="#F1EFE9"/>
+    <Setter Property="CornerRadius" Value="14"/>
+    <Setter Property="Width" Value="28"/>
+    <Setter Property="Height" Value="28"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
+</Styles>

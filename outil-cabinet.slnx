@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Cabinet.App/Cabinet.App.csproj" />
     <Project Path="src/Cabinet.Core/Cabinet.Core.csproj" />
     <Project Path="src/Cabinet.Diagnostic.Core/Cabinet.Diagnostic.Core.csproj" />
     <Project Path="src/Cabinet.Diagnostic.Windows/Cabinet.Diagnostic.Windows.csproj" />
