@@ -47,3 +47,10 @@ public class ProbeSmokeTests
     public void WindowsAssembly_HasNoNetworkReferences()
         => NetworkGuard.AssertNoNetworkReferences(typeof(OutlookComProbe).Assembly);
 }
+
+public class AppGuardTests
+{
+    [Fact]
+    public void AppAssembly_HasNoNetworkReferences()
+        => NetworkGuard.AssertNoNetworkReferences(typeof(Cabinet.Diagnostic.MainWindow).Assembly);
+}

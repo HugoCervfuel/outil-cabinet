@@ -1,0 +1,69 @@
+<Window x:Class="Cabinet.Diagnostic.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Diagnostic de l'outil de cabinet"
+        Width="560" Height="640" MinWidth="480" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Paper}"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        Foreground="{StaticResource Ink}"
+        UseLayoutRounding="True">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="24,24,24,12">
+
+      <TextBlock Text="Diagnostic de l'outil de cabinet" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,16"/>
+
+      <!-- 1. Présentation -->
+      <Border Style="{StaticResource CardBorder}">
+        <StackPanel>
+          <TextBlock Style="{StaticResource BodyText}"
+                     Text="Ce diagnostic vérifie que l'outil pourra fonctionner sur votre ordinateur. Il ne lit, n'enregistre et n'envoie aucune donnée client. Ouvrez Outlook avant de commencer."/>
+          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+            <Button x:Name="StartButton" Style="{StaticResource PrimaryButton}" Content="Lancer le diagnostic" Click="OnStartClick"/>
+            <TextBlock x:Name="BusyText" Style="{StaticResource BodyText}" VerticalAlignment="Center" Visibility="Collapsed"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- 2. Résultats -->
+      <Border x:Name="ResultsCard" Style="{StaticResource CardBorder}" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Text="Résultats" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10"/>
+          <StackPanel x:Name="VerdictsPanel"/>
+        </StackPanel>
+      </Border>
+
+      <!-- 3. Test de l'accès protégé d'Outlook -->
+      <Border x:Name="GuardedCard" Style="{StaticResource CardBorder}" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Style="{StaticResource BodyText}"
+                     Text="Dernier test : l'outil va lire l'adresse d'un expéditeur dans Outlook, sans l'afficher ni la conserver. Si Outlook affiche une fenêtre demandant d'autoriser l'accès, cliquez sur « Refuser »."/>
+          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+            <Button x:Name="GuardedButton" Style="{StaticResource PrimaryButton}" Content="Lancer ce test" Click="OnGuardedClick"/>
+          </StackPanel>
+          <StackPanel x:Name="QuestionPanel" Margin="0,16,0,0" Visibility="Collapsed">
+            <TextBlock Text="Outlook a-t-il affiché une fenêtre d'alerte ?" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="YesButton" Style="{StaticResource SecondaryButton}" Content="Oui" MinWidth="80" Click="OnYesClick"/>
+              <Button x:Name="NoButton" Style="{StaticResource SecondaryButton}" Content="Non" MinWidth="80" Click="OnNoClick"/>
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- 4. Rapport -->
+      <Border x:Name="ReportCard" Style="{StaticResource CardBorder}" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Style="{StaticResource BodyText}"
+                     Text="Envoyez ce rapport au développeur : il ne contient aucune donnée client."/>
+          <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+            <Button x:Name="CopyButton" Style="{StaticResource SecondaryButton}" Content="Copier le rapport" Click="OnCopyClick"/>
+            <Button x:Name="SaveButton" Style="{StaticResource SecondaryButton}" Content="Enregistrer le rapport…" Click="OnSaveClick"/>
+          </StackPanel>
+          <TextBlock x:Name="ReportStatus" Style="{StaticResource BodyText}" Margin="0,10,0,0" Visibility="Collapsed"/>
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+</Window>

@@ -2,6 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.1" />
@@ -16,5 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cabinet.Diagnostic.Windows\Cabinet.Diagnostic.Windows.csproj" />
+    <ProjectReference Include="..\..\src\Cabinet.Diagnostic\Cabinet.Diagnostic.csproj" />
   </ItemGroup>
 </Project>
