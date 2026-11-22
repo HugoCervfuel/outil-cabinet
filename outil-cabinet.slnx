@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Cabinet.Diagnostic.Core/Cabinet.Diagnostic.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Cabinet.Diagnostic.Core.Tests/Cabinet.Diagnostic.Core.Tests.csproj" />
+  </Folder>
+</Solution>
