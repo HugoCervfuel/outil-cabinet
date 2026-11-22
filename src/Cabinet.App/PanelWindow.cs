@@ -125,6 +125,18 @@ internal sealed class PanelWindow : Window
             _content.Children.Add(warning);
         }
 
+        // Courrier
+        _content.Children.Add(Ui.Separator());
+        _content.Children.Add(Ui.Label("Courrier"));
+        var pendingMail = _shell.Desk.PendingCount;
+        var mailRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var mailText = Ui.Text(pendingMail == 0 ? "Aucun e-mail à traiter." : $"{pendingMail} e-mail{(pendingMail > 1 ? "s" : "")} à traiter", 13, bold: pendingMail > 0);
+        var mailButton = Ui.Secondary("Ouvrir", _shell.ShowCourrier);
+        Grid.SetColumn(mailButton, 1);
+        mailRow.Children.Add(mailText);
+        mailRow.Children.Add(mailButton);
+        _content.Children.Add(mailRow);
+
         // Aujourd'hui
         _content.Children.Add(Ui.Separator());
         _content.Children.Add(Ui.Label("Aujourd'hui"));

@@ -14,6 +14,13 @@ internal sealed class DossiersWindow : Window
     private readonly TextBox _name = new() { PlaceholderText = "Ex. : MARTIN c/ Axa" };
     private readonly TextBox _keywords = new() { PlaceholderText = "Ex. : martin, axa, sinistre 2024" };
     private readonly TextBox _reference = new() { PlaceholderText = "Facultatif" };
+    private readonly TextBox _notes = new()
+    {
+        AcceptsReturn = true,
+        TextWrapping = TextWrapping.Wrap,
+        Height = 90,
+        PlaceholderText = "Ex. : Audience le 15/01. Conclusions adverses reçues le 02/11. Attente des observations du client.",
+    };
     private readonly TextBlock _formTitle = Ui.Text("Ajouter un dossier", 15, bold: true);
     private readonly Button _submit;
     private Guid? _editing;
@@ -46,6 +53,8 @@ internal sealed class DossiersWindow : Window
             Field("Mots-clés (séparés par des virgules)", _keywords),
             Ui.Text("L'outil reconnaît le dossier quand un de ces mots apparaît dans le nom d'un document, d'un e-mail ou d'une page.", 12, brush: "Ink3"),
             Field("Référence Kleos", _reference),
+            Field("Où en est le dossier", _notes),
+            Ui.Text("L'assistant courrier s'en sert pour proposer des réponses adaptées.", 12, brush: "Ink3"),
             Ui.Row(8, _submit, Ui.Secondary("Effacer", ResetForm)));
 
         var listScroll = new ScrollViewer { Content = _list, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
@@ -108,10 +117,12 @@ internal sealed class DossiersWindow : Window
         if (_editing is { } id)
         {
             _shell.Session.UpdateDossier(id, name, _keywords.Text ?? "", _reference.Text);
+            _shell.Session.SetNotes(id, _notes.Text);
         }
         else
         {
-            _shell.Session.AddDossier(name, _keywords.Text ?? "", _reference.Text);
+            var created = _shell.Session.AddDossier(name, _keywords.Text ?? "", _reference.Text);
+            _shell.Session.SetNotes(created.Id, _notes.Text);
         }
 
         ResetForm();
@@ -127,6 +138,7 @@ internal sealed class DossiersWindow : Window
         _name.Text = "";
         _keywords.Text = "";
         _reference.Text = "";
+        _notes.Text = "";
         _formTitle.Text = "Ajouter un dossier";
         _submit.Content = "Ajouter";
     }
@@ -138,6 +150,7 @@ internal sealed class DossiersWindow : Window
         _name.Text = dossier.Name;
         _keywords.Text = string.Join(", ", dossier.Keywords);
         _reference.Text = dossier.KleosReference ?? "";
+        _notes.Text = dossier.Notes ?? "";
         _formTitle.Text = "Modifier le dossier";
         _submit.Content = "Enregistrer";
     }
@@ -157,6 +170,18 @@ internal sealed class DossiersWindow : Window
             var info = Ui.Column(2,
                 Ui.Text(dossier.Name, 13, bold: true),
                 Ui.Text(string.Join(", ", dossier.Keywords) + (dossier.KleosReference is { } r ? $"  ·  Kleos {r}" : ""), 12, brush: "Ink3"));
+            if (!string.IsNullOrWhiteSpace(dossier.Notes))
+            {
+                var notes = Ui.Text(dossier.Notes, 12, brush: "Ink2");
+                notes.MaxLines = 2;
+                notes.TextTrimming = TextTrimming.CharacterEllipsis;
+                info.Children.Add(notes);
+            }
+
+            if (dossier.Addresses is { Count: > 0 } addresses)
+            {
+                info.Children.Add(Ui.Text("E-mails reconnus : " + string.Join(", ", addresses), 12, brush: "Ink3"));
+            }
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 4) };
             var buttons = Ui.Row(6,
                 Ui.Secondary("Modifier", () => Edit(dossier)),

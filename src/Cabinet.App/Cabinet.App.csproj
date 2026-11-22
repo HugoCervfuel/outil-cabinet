@@ -22,5 +22,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Cabinet.Platform\Cabinet.Platform.csproj" />
+    <ProjectReference Include="..\Cabinet.Mail\Cabinet.Mail.csproj" />
+    <ProjectReference Include="..\Cabinet.Ai\Cabinet.Ai.csproj" />
   </ItemGroup>
 </Project>

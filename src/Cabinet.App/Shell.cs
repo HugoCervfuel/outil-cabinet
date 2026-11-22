@@ -20,6 +20,7 @@ internal sealed class Shell
     private DossiersWindow? _dossiersWindow;
     private RecapWindow? _recapWindow;
     private SettingsWindow? _settingsWindow;
+    private CourrierWindow? _courrierWindow;
     private NativeMenuItem? _pauseMenuItem;
     private int _ticks;
     private bool _reminder;
@@ -33,6 +34,10 @@ internal sealed class Shell
     }
 
     public WorkSession Session => _services.Session;
+
+    public MailDesk Desk => _services.Desk;
+
+    public Cabinet.Ai.OllamaClient? Ai => _services.Ai;
 
     public void Start()
     {
@@ -60,6 +65,7 @@ internal sealed class Shell
                     case "recap": ShowRecap(); break;
                     case "dossiers": ShowDossiers(); break;
                     case "reglages": ShowSettings(); break;
+                    case "courrier": ShowCourrier(); break;
                 }
             }, DispatcherPriority.Background);
         }
@@ -147,6 +153,19 @@ internal sealed class Shell
         _settingsWindow.Activate();
     }
 
+    public void ShowCourrier()
+    {
+        _panel?.Hide();
+        if (_courrierWindow is null)
+        {
+            _courrierWindow = new CourrierWindow(this);
+            _courrierWindow.Closed += (_, _) => _courrierWindow = null;
+        }
+
+        _courrierWindow.Show();
+        _courrierWindow.Activate();
+    }
+
     public void OpenAccessibilitySettings() => PlatformServices.OpenAccessibilitySettings();
 
     public void Quit()
@@ -213,6 +232,7 @@ internal sealed class Shell
         var menu = new NativeMenu
         {
             Item("Ouvrir le panneau", ShowPanel),
+            Item("Courrier", ShowCourrier),
             _pauseMenuItem,
             new NativeMenuItemSeparator(),
             Item("Ma journée", () => ShowRecap()),

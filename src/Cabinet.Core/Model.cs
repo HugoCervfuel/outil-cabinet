@@ -69,4 +69,7 @@ public sealed record Settings
     public int RoundingMinutes { get; init; } = 5;
 
     public TimeOnly ReminderTime { get; init; } = new(18, 30);
+
+    /// <summary>Modèle d'IA locale choisi ; null = celui conseillé pour la mémoire de l'ordinateur.</summary>
+    public string? AiModel { get; init; }
 }
