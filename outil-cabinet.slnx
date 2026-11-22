@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Cabinet.Ai/Cabinet.Ai.csproj" />
     <Project Path="src/Cabinet.App/Cabinet.App.csproj" />
     <Project Path="src/Cabinet.Core/Cabinet.Core.csproj" />
     <Project Path="src/Cabinet.Diagnostic.Core/Cabinet.Diagnostic.Core.csproj" />
@@ -9,6 +10,7 @@
     <Project Path="src/Cabinet.Platform/Cabinet.Platform.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Cabinet.Ai.Tests/Cabinet.Ai.Tests.csproj" />
     <Project Path="tests/Cabinet.Core.Tests/Cabinet.Core.Tests.csproj" />
     <Project Path="tests/Cabinet.Diagnostic.Core.Tests/Cabinet.Diagnostic.Core.Tests.csproj" />
     <Project Path="tests/Cabinet.Diagnostic.Windows.Tests/Cabinet.Diagnostic.Windows.Tests.csproj" />
