@@ -27,6 +27,7 @@ public partial class PastilleWindow : Window
         OpenButton.Click += (_, _) => _shell.TogglePanel();
         PauseButton.Click += (_, _) => _shell.TogglePause();
         Grip.PointerPressed += OnGripPressed;
+        Pill.ContextMenu = BuildMenu(shell);
         LayoutUpdated += (_, _) => PlaceInCorner();
     }
 
@@ -45,6 +46,30 @@ public partial class PastilleWindow : Window
         })!;
         Pill.BoxShadow = reminder ? ReminderShadow : NormalShadow;
         ToolTip.SetTip(OpenButton, reminder ? "Pensez à valider votre journée" : "Ouvrir le panneau");
+    }
+
+    /// <summary>Clic droit sur la pastille : les actions principales, dont « Quitter ».</summary>
+    private static ContextMenu BuildMenu(Shell shell)
+    {
+        MenuItem Item(string header, Action action)
+        {
+            var item = new MenuItem { Header = header };
+            item.Click += (_, _) => action();
+            return item;
+        }
+
+        return new ContextMenu
+        {
+            ItemsSource = new Control[]
+            {
+                Item("Ouvrir le panneau", shell.ShowPanel),
+                Item("Courrier", shell.ShowCourrier),
+                Item("Ma journée", () => shell.ShowRecap()),
+                Item("Pause / Reprendre", shell.TogglePause),
+                new Separator(),
+                Item("Quitter l'outil de cabinet", shell.Quit),
+            },
+        };
     }
 
     private void OnGripPressed(object? sender, PointerPressedEventArgs e)
