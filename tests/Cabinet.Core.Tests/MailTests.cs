@@ -83,7 +83,7 @@ public class AnalysisParserTests
 
     [Fact]
     public void Parse_UnknownUrgency_IsNormale()
-        => Assert.Equal(Urgency.Normale, AnalysisParser.Parse("""{"resume":"R","action":"A","urgence":"très urgent !!","brouillon":"B"}""")!.Urgency);
+        => Assert.Equal(Urgency.Normale, AnalysisParser.Parse("""{"resume":"R","action":"A","urgence":"à voir","brouillon":"B"}""")!.Urgency);
 
     [Fact]
     public void Parse_FrenchDate()

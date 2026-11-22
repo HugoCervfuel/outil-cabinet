@@ -206,3 +206,49 @@ public class DossierContextTests : IDisposable
         Assert.Equal(new[] { "p.martin@exemple.fr" }, updated.Addresses);
     }
 }
+
+public class DossierAddressesTests : IDisposable
+{
+    private sealed class FixedKey : IKeyStore
+    {
+        public byte[] GetOrCreateKey() => Enumerable.Repeat((byte)8, 32).ToArray();
+    }
+
+    private sealed class NoProbe : IActivityProbe
+    {
+        public ActiveWindow? ReadActiveWindow() => null;
+        public TimeSpan? IdleTime() => null;
+    }
+
+    private readonly string _folder = Path.Combine(Path.GetTempPath(), "cabinet-addr-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_folder))
+        {
+            Directory.Delete(_folder, recursive: true);
+        }
+    }
+
+    private WorkSession Session() => new(new Journal(new EncryptedStore(_folder, new FixedKey())), new NoProbe(), () => new DateTimeOffset(2026, 11, 22, 9, 0, 0, TimeSpan.Zero));
+
+    [Fact]
+    public void SetAddresses_ReplacesTheList()
+    {
+        var session = Session();
+        var dossier = session.AddDossier("MARTIN", "martin", null);
+        session.AddAddress(dossier.Id, "greffe@tj.fr");
+        session.SetAddresses(dossier.Id, "p.martin@exemple.fr\n pas-une-adresse \n");
+        Assert.Equal(new[] { "p.martin@exemple.fr" }, Session().Dossiers.Single().Addresses);
+    }
+
+    [Fact]
+    public void Dossiers_IsASnapshot()
+    {
+        var session = Session();
+        session.AddDossier("A", "a", null);
+        var snapshot = session.Dossiers;
+        session.AddDossier("B", "b", null);
+        Assert.Single(snapshot);
+    }
+}

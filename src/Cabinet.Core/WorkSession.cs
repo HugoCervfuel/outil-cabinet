@@ -19,6 +19,7 @@ public sealed class WorkSession
     private readonly Func<DateTimeOffset> _clock;
     private readonly Tracker _tracker;
     private readonly List<Dossier> _dossiers;
+    private readonly object _dossiersGate = new();
     private DateTimeOffset _lastSave;
 
     public WorkSession(Journal journal, IActivityProbe probe, Func<DateTimeOffset> clock)
@@ -40,7 +41,17 @@ public sealed class WorkSession
 
     public Settings Settings { get; private set; }
 
-    public IReadOnlyList<Dossier> Dossiers => _dossiers;
+    /// <summary>Copie de la liste des dossiers, lisible depuis n'importe quel fil (l'analyse du courrier tourne en arrière-plan).</summary>
+    public IReadOnlyList<Dossier> Dossiers
+    {
+        get
+        {
+            lock (_dossiersGate)
+            {
+                return _dossiers.ToList();
+            }
+        }
+    }
 
     public IReadOnlyList<Dossier> ActiveDossiers => _dossiers.Where(d => !d.Archived).OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
@@ -117,24 +128,20 @@ public sealed class WorkSession
     {
         var keywords = ParseKeywords(keywordsText);
         var dossier = Dossier.Create(name, keywords.Count > 0 ? keywords : Dossier.SuggestKeywords(name), kleosReference);
-        _dossiers.Add(dossier);
-        _journal.SaveDossiers(_dossiers);
+        lock (_dossiersGate)
+        {
+            _dossiers.Add(dossier);
+            _journal.SaveDossiers(_dossiers);
+        }
+
         return dossier;
     }
 
     public void UpdateDossier(Guid id, string name, string keywordsText, string? kleosReference)
     {
-        var index = _dossiers.FindIndex(d => d.Id == id);
-        if (index < 0)
-        {
-            return;
-        }
-
         var keywords = ParseKeywords(keywordsText);
         var fresh = Dossier.Create(name, keywords.Count > 0 ? keywords : Dossier.SuggestKeywords(name), kleosReference);
-        var previous = _dossiers[index];
-        _dossiers[index] = fresh with { Id = id, Archived = previous.Archived, Notes = previous.Notes, Addresses = previous.Addresses };
-        _journal.SaveDossiers(_dossiers);
+        ChangeDossier(id, previous => fresh with { Id = id, Archived = previous.Archived, Notes = previous.Notes, Addresses = previous.Addresses });
     }
 
     /// <summary>« Où en est le dossier » : le contexte donné à l'assistant courrier.</summary>
@@ -155,13 +162,28 @@ public sealed class WorkSession
             : d with { Addresses = (d.Addresses ?? Array.Empty<string>()).Append(clean).ToList() });
     }
 
+    /// <summary>Remplace les adresses reconnues (une par ligne, ou séparées par des virgules).</summary>
+    public void SetAddresses(Guid id, string? text)
+    {
+        var addresses = (text ?? "")
+            .Split(KeywordSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(a => a.ToLowerInvariant())
+            .Where(a => a.Contains('@') && !a.Contains(' '))
+            .Distinct()
+            .ToList();
+        ChangeDossier(id, d => d with { Addresses = addresses });
+    }
+
     private void ChangeDossier(Guid id, Func<Dossier, Dossier> change)
     {
-        var index = _dossiers.FindIndex(d => d.Id == id);
-        if (index >= 0)
+        lock (_dossiersGate)
         {
-            _dossiers[index] = change(_dossiers[index]);
-            _journal.SaveDossiers(_dossiers);
+            var index = _dossiers.FindIndex(d => d.Id == id);
+            if (index >= 0)
+            {
+                _dossiers[index] = change(_dossiers[index]);
+                _journal.SaveDossiers(_dossiers);
+            }
         }
     }
 
