@@ -3,8 +3,18 @@ namespace Cabinet.Core;
 /// <summary>Nature d'une activité, alignée sur les types de prestation saisis dans Kleos.</summary>
 public enum ActivityKind { Redaction, Correspondance, Lecture, Recherche, Gestion, Autre }
 
-/// <summary>Un dossier de l'avocat, tel qu'il sert au rattachement automatique.</summary>
-public sealed record Dossier(Guid Id, string Name, IReadOnlyList<string> Keywords, string? KleosReference, bool Archived = false)
+/// <summary>
+/// Un dossier de l'avocat : ce qui sert au rattachement automatique (mots-clés, adresses e-mail connues) et
+/// « où en est le dossier » (notes), contexte donné à l'assistant courrier.
+/// </summary>
+public sealed record Dossier(
+    Guid Id,
+    string Name,
+    IReadOnlyList<string> Keywords,
+    string? KleosReference,
+    bool Archived = false,
+    string? Notes = null,
+    IReadOnlyList<string>? Addresses = null)
 {
     private static readonly HashSet<string> CommonWords = new(StringComparer.Ordinal)
     {

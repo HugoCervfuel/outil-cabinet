@@ -132,19 +132,40 @@ public sealed class WorkSession
 
         var keywords = ParseKeywords(keywordsText);
         var fresh = Dossier.Create(name, keywords.Count > 0 ? keywords : Dossier.SuggestKeywords(name), kleosReference);
-        _dossiers[index] = fresh with { Id = id, Archived = _dossiers[index].Archived };
+        var previous = _dossiers[index];
+        _dossiers[index] = fresh with { Id = id, Archived = previous.Archived, Notes = previous.Notes, Addresses = previous.Addresses };
         _journal.SaveDossiers(_dossiers);
     }
 
-    public void ArchiveDossier(Guid id)
+    /// <summary>« Où en est le dossier » : le contexte donné à l'assistant courrier.</summary>
+    public void SetNotes(Guid id, string? notes)
+        => ChangeDossier(id, d => d with { Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim() });
+
+    /// <summary>Une adresse e-mail rattachée au dossier (apprise quand l'avocat range un e-mail).</summary>
+    public void AddAddress(Guid id, string address)
+    {
+        var clean = address.Trim().ToLowerInvariant();
+        if (clean.Length == 0 || !clean.Contains('@'))
+        {
+            return;
+        }
+
+        ChangeDossier(id, d => (d.Addresses ?? Array.Empty<string>()).Contains(clean)
+            ? d
+            : d with { Addresses = (d.Addresses ?? Array.Empty<string>()).Append(clean).ToList() });
+    }
+
+    private void ChangeDossier(Guid id, Func<Dossier, Dossier> change)
     {
         var index = _dossiers.FindIndex(d => d.Id == id);
         if (index >= 0)
         {
-            _dossiers[index] = _dossiers[index] with { Archived = true };
+            _dossiers[index] = change(_dossiers[index]);
             _journal.SaveDossiers(_dossiers);
         }
     }
+
+    public void ArchiveDossier(Guid id) => ChangeDossier(id, d => d with { Archived = true });
 
     public void UpdateSettings(Settings settings)
     {

@@ -148,3 +148,61 @@ public class SessionTests : IDisposable
     public void ParseKeywords(string text, string[] expected)
         => Assert.Equal(expected, WorkSession.ParseKeywords(text));
 }
+
+public class DossierContextTests : IDisposable
+{
+    private sealed class FixedKey : IKeyStore
+    {
+        public byte[] GetOrCreateKey() => Enumerable.Repeat((byte)9, 32).ToArray();
+    }
+
+    private sealed class NoProbe : IActivityProbe
+    {
+        public ActiveWindow? ReadActiveWindow() => null;
+        public TimeSpan? IdleTime() => null;
+    }
+
+    private readonly string _folder = Path.Combine(Path.GetTempPath(), "cabinet-ctx-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_folder))
+        {
+            Directory.Delete(_folder, recursive: true);
+        }
+    }
+
+    private WorkSession Session() => new(new Journal(new EncryptedStore(_folder, new FixedKey())), new NoProbe(), () => new DateTimeOffset(2026, 11, 22, 9, 0, 0, TimeSpan.Zero));
+
+    [Fact]
+    public void SetNotes_Persists()
+    {
+        var session = Session();
+        var dossier = session.AddDossier("MARTIN c/ Axa", "martin", null);
+        session.SetNotes(dossier.Id, "Audience le 15/01. Attente des commentaires du client.");
+        Assert.Equal("Audience le 15/01. Attente des commentaires du client.", Session().Dossiers.Single().Notes);
+    }
+
+    [Fact]
+    public void AddAddress_IsCaseInsensitiveAndUnique()
+    {
+        var session = Session();
+        var dossier = session.AddDossier("MARTIN c/ Axa", "martin", null);
+        session.AddAddress(dossier.Id, "P.Martin@exemple.fr");
+        session.AddAddress(dossier.Id, "p.martin@exemple.fr ");
+        Assert.Equal(new[] { "p.martin@exemple.fr" }, Session().Dossiers.Single().Addresses);
+    }
+
+    [Fact]
+    public void UpdateDossier_KeepsNotesAndAddresses()
+    {
+        var session = Session();
+        var dossier = session.AddDossier("MARTIN c/ Axa", "martin", null);
+        session.SetNotes(dossier.Id, "Notes");
+        session.AddAddress(dossier.Id, "p.martin@exemple.fr");
+        session.UpdateDossier(dossier.Id, "MARTIN c/ Axa (appel)", "martin, axa", "2026-0142");
+        var updated = Session().Dossiers.Single();
+        Assert.Equal("Notes", updated.Notes);
+        Assert.Equal(new[] { "p.martin@exemple.fr" }, updated.Addresses);
+    }
+}
