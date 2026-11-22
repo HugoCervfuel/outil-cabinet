@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Cabinet.Documents</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cabinet.Mail\Cabinet.Mail.csproj" />
+  </ItemGroup>
+</Project>
