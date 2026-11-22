@@ -1,4 +1,7 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cabinet.Core;
@@ -28,7 +31,20 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
 
     private static readonly JsonSerializerOptions Json = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
+    /// <summary>Format imposé à la réponse (sorties structurées d'Ollama) : les cinq clés, l'urgence parmi trois valeurs.</summary>
+    private static readonly JsonElement AnalysisSchema = JsonDocument.Parse(
+        """
+        {"type":"object","properties":{
+          "resume":{"type":"string"},
+          "action":{"type":"string"},
+          "urgence":{"type":"string","enum":["basse","normale","haute"]},
+          "echeance":{"type":["string","null"]},
+          "brouillon":{"type":"string"}},
+         "required":["resume","action","urgence","echeance","brouillon"]}
+        """).RootElement.Clone();
+
     private readonly HttpClient _http;
+    private string _model = "";
 
     public OllamaClient(string model, Uri? endpoint = null, HttpMessageHandler? handler = null)
     {
@@ -39,7 +55,7 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
         }
 
         Model = model;
-        _http = new HttpClient(handler ?? new SocketsHttpHandler { UseProxy = false })
+        _http = new HttpClient(handler ?? CreateHandler())
         {
             BaseAddress = Endpoint,
             // Un modèle local peut mettre plusieurs minutes à rédiger sur un ordinateur modeste.
@@ -49,14 +65,77 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
 
     public Uri Endpoint { get; }
 
-    public string Model { get; set; }
+    /// <summary>Le modèle utilisé. Les modèles « cloud » d'Ollama, exécutés chez Ollama, sont refusés.</summary>
+    public string Model
+    {
+        get => _model;
+        set
+        {
+            if (IsCloudModel(value))
+            {
+                throw new ArgumentException("Ce modèle s'exécute sur les serveurs d'Ollama, pas sur cet ordinateur : il est refusé.", nameof(value));
+            }
 
-    /// <summary>Modèle conseillé selon la mémoire de l'ordinateur.</summary>
-    public static string RecommendedModel(long memoryBytes)
+            _model = value.Trim();
+        }
+    }
+
+    public static bool IsAppleSilicon => OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+
+    public static bool IsCloudModel(string model)
+    {
+        var name = model.Trim().ToLowerInvariant();
+        return name.EndsWith("-cloud", StringComparison.Ordinal) || name.EndsWith(":cloud", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Modèle conseillé selon la mémoire et la puce. Un Mac à puce Apple fait tourner l'IA bien plus vite qu'un PC
+    /// sans carte graphique : sur PC, on conseille un modèle plus léger pour une réponse en temps raisonnable.
+    /// </summary>
+    public static string RecommendedModel(long memoryBytes, bool appleSilicon)
     {
         var gigabytes = memoryBytes / (1024.0 * 1024 * 1024);
-        return gigabytes >= 31 ? "mistral-small3.2" : gigabytes >= 15 ? "gemma3:12b" : "gemma3:4b";
+        if (appleSilicon)
+        {
+            return gigabytes >= 31 ? "mistral-small3.2" : gigabytes >= 15 ? "gemma3:12b" : "gemma3:4b";
+        }
+
+        return gigabytes >= 31 ? "gemma3:12b" : "gemma3:4b";
     }
+
+    /// <summary>
+    /// Connexion directe (aucun proxy), sans suivre de redirection, et refusée vers toute adresse qui n'est pas
+    /// cette machine, même si un programme local tentait de rediriger la requête.
+    /// </summary>
+    public static SocketsHttpHandler CreateHandler() => new()
+    {
+        UseProxy = false,
+        AllowAutoRedirect = false,
+        ConnectCallback = async (context, cancellationToken) =>
+        {
+            var host = context.DnsEndPoint.Host;
+            var addresses = IPAddress.TryParse(host, out var literal)
+                ? new[] { literal }
+                : await Dns.GetHostAddressesAsync(host, cancellationToken);
+            var loopback = addresses.Where(IPAddress.IsLoopback).ToArray();
+            if (loopback.Length == 0 || loopback.Length != addresses.Length)
+            {
+                throw new HttpRequestException("Connexion refusée : l'IA doit tourner sur cet ordinateur.");
+            }
+
+            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                await socket.ConnectAsync(loopback, context.DnsEndPoint.Port, cancellationToken);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        },
+    };
 
     public async Task<OllamaStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -69,7 +148,11 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
             }
 
             var tags = await response.Content.ReadFromJsonAsync<TagsResponse>(Json, cancellationToken);
-            return new OllamaStatus(true, tags?.Models?.Select(m => m.Name ?? "").Where(n => n.Length > 0).ToList() ?? new List<string>());
+            var local = tags?.Models?
+                .Where(m => string.IsNullOrEmpty(m.RemoteHost) && m.Name is { Length: > 0 } name && !IsCloudModel(name))
+                .Select(m => m.Name!)
+                .ToList();
+            return new OllamaStatus(true, local ?? new List<string>());
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -83,8 +166,9 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
             Model,
             new[] { new ChatMessage("system", system), new ChatMessage("user", user) },
             Stream: false,
-            Format: "json",
-            new ChatOptions(Temperature: 0.2, ContextLength: 8192));
+            Format: AnalysisSchema,
+            new ChatOptions(Temperature: 0.2, ContextLength: 8192, MaxTokens: 1200),
+            KeepAlive: "30m");
 
         using var response = await _http.PostAsJsonAsync("api/chat", request, Json, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -149,8 +233,9 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages,
         [property: JsonPropertyName("stream")] bool Stream,
-        [property: JsonPropertyName("format")] string Format,
-        [property: JsonPropertyName("options")] ChatOptions Options);
+        [property: JsonPropertyName("format")] JsonElement Format,
+        [property: JsonPropertyName("options")] ChatOptions Options,
+        [property: JsonPropertyName("keep_alive")] string KeepAlive);
 
     private sealed record ChatMessage(
         [property: JsonPropertyName("role")] string Role,
@@ -158,13 +243,16 @@ public sealed class OllamaClient : IMailAssistant, IDisposable
 
     private sealed record ChatOptions(
         [property: JsonPropertyName("temperature")] double Temperature,
-        [property: JsonPropertyName("num_ctx")] int ContextLength);
+        [property: JsonPropertyName("num_ctx")] int ContextLength,
+        [property: JsonPropertyName("num_predict")] int MaxTokens);
 
     private sealed record ChatResponse([property: JsonPropertyName("message")] ChatMessage? Message);
 
     private sealed record TagsResponse([property: JsonPropertyName("models")] IReadOnlyList<TagModel>? Models);
 
-    private sealed record TagModel([property: JsonPropertyName("name")] string? Name);
+    private sealed record TagModel(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("remote_host")] string? RemoteHost);
 
     private sealed record PullRequest(
         [property: JsonPropertyName("model")] string Model,

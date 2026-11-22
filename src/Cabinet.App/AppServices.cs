@@ -29,7 +29,7 @@ internal sealed class AppServices : IDisposable
 
     public static string ModelFor(Settings settings)
         => string.IsNullOrWhiteSpace(settings.AiModel)
-            ? OllamaClient.RecommendedModel(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes)
+            ? OllamaClient.RecommendedModel(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, OllamaClient.IsAppleSilicon)
             : settings.AiModel.Trim();
 
     /// <summary>Null si l'outil est déjà ouvert (une seule instance à la fois).</summary>

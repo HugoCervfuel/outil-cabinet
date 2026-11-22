@@ -50,7 +50,6 @@ public class OllamaClientTests
         using var json = JsonDocument.Parse(body!);
         Assert.Equal("gemma3:12b", json.RootElement.GetProperty("model").GetString());
         Assert.False(json.RootElement.GetProperty("stream").GetBoolean());
-        Assert.Equal("json", json.RootElement.GetProperty("format").GetString());
         var messages = json.RootElement.GetProperty("messages");
         Assert.Equal("system", messages[0].GetProperty("role").GetString());
         Assert.Equal("consignes", messages[0].GetProperty("content").GetString());
@@ -102,19 +101,80 @@ public class OllamaClientTests
     }
 
     [Theory]
-    [InlineData(64L, "mistral-small3.2")]
-    [InlineData(32L, "mistral-small3.2")]
-    [InlineData(24L, "gemma3:12b")]
-    [InlineData(16L, "gemma3:12b")]
-    [InlineData(8L, "gemma3:4b")]
-    public void RecommendedModel_DependsOnMemory(long gigabytes, string expected)
-        => Assert.Equal(expected, OllamaClient.RecommendedModel(gigabytes * 1024 * 1024 * 1024));
+    [InlineData(64L, true, "mistral-small3.2")]
+    [InlineData(32L, true, "mistral-small3.2")]
+    [InlineData(32L, false, "gemma3:12b")]
+    [InlineData(16L, true, "gemma3:12b")]
+    [InlineData(16L, false, "gemma3:4b")]
+    [InlineData(8L, true, "gemma3:4b")]
+    public void RecommendedModel_DependsOnMemoryAndChip(long gigabytes, bool appleSilicon, string expected)
+        => Assert.Equal(expected, OllamaClient.RecommendedModel(gigabytes * 1024 * 1024 * 1024, appleSilicon));
+
+    [Fact]
+    public void DefaultHandler_NeverFollowsRedirectsNorUsesAProxy()
+    {
+        using var handler = OllamaClient.CreateHandler();
+        Assert.False(handler.AllowAutoRedirect);
+        Assert.False(handler.UseProxy);
+        Assert.NotNull(handler.ConnectCallback);
+    }
+
+    [Fact]
+    public async Task Redirect_IsRefused()
+    {
+        var handler = new FakeHandler((_, _) =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TemporaryRedirect);
+            response.Headers.Location = new Uri("http://192.0.2.2/api/chat");
+            return response;
+        });
+        using var client = new OllamaClient("gemma3:12b", handler: handler);
+        await Assert.ThrowsAsync<OllamaException>(() => client.CompleteAsync("s", "u", CancellationToken.None));
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("gpt-oss:120b-cloud")]
+    [InlineData("deepseek-v3.1:671b-cloud")]
+    [InlineData("qwen3-coder:cloud")]
+    public void CloudModels_AreRefused(string model)
+        => Assert.Throws<ArgumentException>(() => new OllamaClient(model));
+
+    [Fact]
+    public void CloudModels_AreRefusedWhenChangedLater()
+    {
+        using var client = new OllamaClient("gemma3:12b");
+        Assert.Throws<ArgumentException>(() => client.Model = "gpt-oss:20b-cloud");
+    }
+
+    [Fact]
+    public async Task Status_RemoteModels_AreNotCountedAsInstalled()
+    {
+        var handler = new FakeHandler((_, _) => Json("{\"models\":[{\"name\":\"gemma3:12b\"},{\"name\":\"gpt-oss:120b-cloud\",\"remote_host\":\"https://ollama.com:443\"}]}"));
+        using var client = new OllamaClient("gemma3:12b", handler: handler);
+        var status = await client.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(new[] { "gemma3:12b" }, status.Models);
+    }
+
+    [Fact]
+    public async Task Complete_AsksForStructuredOutputAndCapsLength()
+    {
+        var handler = new FakeHandler((_, _) => Json("{\"message\":{\"role\":\"assistant\",\"content\":\"{}\"},\"done\":true}"));
+        using var client = new OllamaClient("gemma3:12b", handler: handler);
+        await client.CompleteAsync("s", "u", CancellationToken.None);
+        using var json = JsonDocument.Parse(handler.Requests.Single().Body!);
+        var format = json.RootElement.GetProperty("format");
+        Assert.Equal(JsonValueKind.Object, format.ValueKind);
+        Assert.Equal("object", format.GetProperty("type").GetString());
+        Assert.True(json.RootElement.GetProperty("options").GetProperty("num_predict").GetInt32() > 0);
+        Assert.Equal("30m", json.RootElement.GetProperty("keep_alive").GetString());
+    }
 
     [Fact]
     public void AiAssembly_UsesHttpOnly()
     {
         var referenced = typeof(OllamaClient).Assembly.GetReferencedAssemblies().Select(a => a.Name).ToList();
-        foreach (var forbidden in new[] { "System.Net.Sockets", "System.Net.Requests", "System.Net.WebClient", "System.Net.WebSockets", "System.Net.Mail" })
+        foreach (var forbidden in new[] { "System.Net.Requests", "System.Net.WebClient", "System.Net.WebSockets", "System.Net.Mail" })
         {
             Assert.DoesNotContain(forbidden, referenced);
         }
