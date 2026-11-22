@@ -1,0 +1,39 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["diagnostic-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Tests (Core et Windows)
+        run: dotnet test outil-cabinet.slnx -c Release
+
+      - name: Publication de l'exécutable
+        run: dotnet publish src/Cabinet.Diagnostic -c Release -o publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Diagnostic-OutilCabinet
+          path: publish/Diagnostic-OutilCabinet.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/diagnostic-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: publish/Diagnostic-OutilCabinet.exe
