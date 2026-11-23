@@ -9,7 +9,14 @@ public enum Urgency { Basse, Normale, Haute }
 public enum MailStatus { ATraiter, Traite }
 
 /// <summary>Un e-mail reçu, tel que l'outil le lit. Donnée client : il reste chiffré sur le poste.</summary>
-public sealed record MailMessage(string FromName, string FromAddress, string Subject, DateTimeOffset? Date, string Body, IReadOnlyList<string> Attachments);
+public sealed record MailMessage(
+    string FromName,
+    string FromAddress,
+    string Subject,
+    DateTimeOffset? Date,
+    string Body,
+    IReadOnlyList<string> Attachments,
+    string? MessageId = null);
 
 /// <summary>Ce que l'assistant propose pour un e-mail.</summary>
 public sealed record MailAnalysis(string Summary, string Action, Urgency Urgency, DateOnly? Deadline, string DraftReply);
@@ -327,6 +334,21 @@ public sealed class MailDesk
         }
 
         return item;
+    }
+
+    /// <summary>Ajoute un e-mail relevé automatiquement, sauf s'il a déjà été importé (même identifiant de message).</summary>
+    public MailItem? AddIfNew(MailMessage message)
+    {
+        lock (_gate)
+        {
+            if (!string.IsNullOrWhiteSpace(message.MessageId)
+                && _items.Any(i => string.Equals(i.Message.MessageId, message.MessageId, StringComparison.Ordinal)))
+            {
+                return null;
+            }
+        }
+
+        return Add(message);
     }
 
     /// <summary>

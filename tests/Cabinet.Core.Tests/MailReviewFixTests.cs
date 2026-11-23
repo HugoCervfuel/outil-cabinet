@@ -242,3 +242,46 @@ public class MatcherAndPromptReviewFixTests
     public void Parser_ReadsUrgentSynonyms(string text)
         => Assert.Equal(Urgency.Haute, AnalysisParser.Parse($$"""{"resume":"R","action":"A","urgence":"{{text}}","brouillon":"B"}""")!.Urgency);
 }
+
+public class MailDedupTests : IDisposable
+{
+    private sealed class FixedKey : IKeyStore
+    {
+        public byte[] GetOrCreateKey() => Enumerable.Repeat((byte)2, 32).ToArray();
+    }
+
+    private sealed class NoAssistant : IMailAssistant
+    {
+        public Task<string> CompleteAsync(string system, string user, CancellationToken cancellationToken) => Task.FromResult("");
+    }
+
+    private readonly string _folder = Path.Combine(Path.GetTempPath(), "cabinet-dedup-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_folder))
+        {
+            Directory.Delete(_folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AddIfNew_SkipsAMessageAlreadyImported()
+    {
+        var desk = new MailDesk(new EncryptedStore(_folder, new FixedKey()), () => Array.Empty<Dossier>(), new NoAssistant(), () => DateTimeOffset.Now);
+        var mail = new MailMessage("A", "a@b.fr", "Objet", null, "Corps", Array.Empty<string>(), "<id-1@b.fr>");
+        Assert.NotNull(desk.AddIfNew(mail));
+        Assert.Null(desk.AddIfNew(mail with { Subject = "Objet (copie)" }));
+        Assert.Single(desk.Items);
+    }
+
+    [Fact]
+    public void AddIfNew_WithoutMessageId_AlwaysAdds()
+    {
+        var desk = new MailDesk(new EncryptedStore(_folder, new FixedKey()), () => Array.Empty<Dossier>(), new NoAssistant(), () => DateTimeOffset.Now);
+        var mail = new MailMessage("A", "a@b.fr", "Objet", null, "Corps", Array.Empty<string>());
+        desk.AddIfNew(mail);
+        desk.AddIfNew(mail);
+        Assert.Equal(2, desk.Items.Count);
+    }
+}

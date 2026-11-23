@@ -86,9 +86,11 @@ public static partial class MailReader
         return new MailMessage(fromName, fromAddress, subject, null, body, Array.Empty<string>());
     }
 
-    private static MailMessage FromEml(string path)
+    private static MailMessage FromEml(string path) => FromMime(MimeMessage.Load(path));
+
+    /// <summary>Un e-mail déjà décodé (lu depuis un fichier ou relevé dans la boîte de réception).</summary>
+    public static MailMessage FromMime(MimeMessage message)
     {
-        var message = MimeMessage.Load(path);
         var sender = message.From.Mailboxes.FirstOrDefault();
         var body = FirstText(message.TextBody, ToText(message.HtmlBody));
         var attachments = message.Attachments
@@ -102,7 +104,8 @@ public static partial class MailReader
             string.IsNullOrWhiteSpace(message.Subject) ? NoSubject : message.Subject.Trim(),
             message.Date == DateTimeOffset.MinValue ? null : message.Date,
             body.Trim(),
-            attachments);
+            attachments,
+            string.IsNullOrWhiteSpace(message.MessageId) ? null : message.MessageId);
     }
 
     private static MailMessage FromMsg(string path)

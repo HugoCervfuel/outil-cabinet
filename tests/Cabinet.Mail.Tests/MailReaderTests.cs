@@ -84,6 +84,16 @@ public class MailReaderTests : IDisposable
     }
 
     [Fact]
+    public void FromMime_KeepsTheMessageId()
+    {
+        var path = Path.Combine(_folder, "id.eml");
+        File.WriteAllText(path, Eml.Replace("MIME-Version: 1.0\r\n", "Message-ID: <abc-123@exemple.fr>\r\nMIME-Version: 1.0\r\n"), new UTF8Encoding(false));
+        var mail = MailReader.FromMime(MimeKit.MimeMessage.Load(path));
+        Assert.Equal("abc-123@exemple.fr", mail.MessageId);
+        Assert.Equal("p.martin@exemple.fr", mail.FromAddress);
+    }
+
+    [Fact]
     public void MailAssembly_HasNoNetworkReferences()
         => Cabinet.Diagnostic.Core.Tests.NetworkGuard.AssertNoNetworkReferences(typeof(MailReader).Assembly);
 }
