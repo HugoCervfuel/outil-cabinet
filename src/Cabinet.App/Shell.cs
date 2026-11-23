@@ -26,6 +26,7 @@ internal sealed class Shell
     private readonly CancellationTokenSource _closing = new();
     private int _ticks;
     private bool _reminder;
+    private bool _syncAgain;
 
     public Shell(Application application, IClassicDesktopStyleApplicationLifetime desktop, AppServices services)
     {
@@ -207,11 +208,20 @@ internal sealed class Shell
     /// <summary>Après un changement de messagerie dans les réglages.</summary>
     public void MailboxSettingsChanged() => _courrierWindow?.OnMailSyncChanged();
 
-    /// <summary>Relève la boîte de réception, puis lance l'analyse des nouveaux e-mails.</summary>
-    public async Task SyncMailAsync()
+    /// <summary>
+    /// Relève la boîte de réception, puis lance l'analyse des nouveaux e-mails. Demandé pendant un relevé
+    /// (réglages changés, bouton) : un nouveau relevé suit aussitôt, avec la boîte à jour.
+    /// </summary>
+    public async Task SyncMailAsync(bool requested = true)
     {
-        if (MailSyncing || !Mailbox.IsConfigured)
+        if (!Mailbox.IsConfigured)
         {
+            return;
+        }
+
+        if (MailSyncing)
+        {
+            _syncAgain |= requested;
             return;
         }
 
@@ -219,7 +229,12 @@ internal sealed class Shell
         _courrierWindow?.OnMailSyncChanged();
         try
         {
-            await Task.Run(() => Mailbox.SyncAsync(_closing.Token));
+            do
+            {
+                _syncAgain = false;
+                await Task.Run(() => Mailbox.SyncAsync(_closing.Token));
+            }
+            while (_syncAgain && Mailbox.IsConfigured);
         }
         catch (OperationCanceledException)
         {
@@ -287,7 +302,7 @@ internal sealed class Shell
         // Toutes les 2 minutes (le premier relevé quelques secondes après l'ouverture).
         if (_ticks % 60 == 3 && Mailbox.AutoFetch)
         {
-            _ = SyncMailAsync();
+            _ = SyncMailAsync(requested: false);
         }
 
         Refresh();

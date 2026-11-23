@@ -22,18 +22,35 @@ public class MailboxSyncTests : IDisposable
 
         public List<(uint? AfterUid, uint? UidValidity)> Calls { get; } = new();
 
+        public List<DateTimeOffset> Since { get; } = new();
+
         public Exception? Failure { get; set; }
 
-        public Task<FetchResult> FetchAsync(MailAccount account, uint? afterUid, uint? uidValidity, DateTimeOffset since, int max, CancellationToken cancellationToken)
+        public TaskCompletionSource? Gate { get; set; }
+
+        public bool Partial { get; set; }
+
+        public async Task<FetchResult> FetchAsync(MailAccount account, uint? afterUid, uint? uidValidity, DateTimeOffset since, int max, CancellationToken cancellationToken)
         {
             Calls.Add((afterUid, uidValidity));
+            Since.Add(since);
+            if (Gate is not null)
+            {
+                await Gate.Task;
+            }
+
             if (Failure is not null)
             {
                 throw Failure;
             }
 
             var mails = Mailbox.Where(m => uidValidity != UidValidity || afterUid is null || m.Uid > afterUid).TakeLast(max).ToList();
-            return Task.FromResult(new FetchResult(UidValidity, mails));
+            if (Partial && mails.Count > 1)
+            {
+                return new FetchResult(UidValidity, mails.Take(mails.Count - 1).ToList(), mails[^2].Uid, Complete: false);
+            }
+
+            return new FetchResult(UidValidity, mails);
         }
 
         public Task TestAsync(MailAccount account, CancellationToken cancellationToken)
@@ -50,11 +67,15 @@ public class MailboxSyncTests : IDisposable
         }
     }
 
+    private static readonly DateTimeOffset Now = new(2026, 11, 23, 9, 0, 0, TimeSpan.Zero);
+
+    private DateTimeOffset _now = Now;
+
     private (MailboxSync Sync, MailDesk Desk) Create(FakeSource source, bool configure = true)
     {
         var store = new EncryptedStore(_folder, new FixedKey());
         var desk = new MailDesk(store, () => Array.Empty<Dossier>(), new NoAssistant(), () => DateTimeOffset.Now);
-        var sync = new MailboxSync(store, desk, source, () => new DateTimeOffset(2026, 11, 23, 9, 0, 0, TimeSpan.Zero));
+        var sync = new MailboxSync(store, desk, source, () => _now);
         if (configure)
         {
             sync.SaveAccount(new MailAccount("avocat@exemple.fr", "MOT-DE-PASSE-BRIDGE"));
@@ -63,8 +84,78 @@ public class MailboxSyncTests : IDisposable
         return (sync, desk);
     }
 
-    private static FetchedMail Mail(uint uid, string subject, bool bulk = false)
-        => new(uid, new MailMessage("Client", "client@exemple.fr", subject, null, "Bonjour", Array.Empty<string>(), $"<{uid}@exemple.fr>"), bulk);
+    private static FetchedMail Mail(uint uid, string subject, bool bulk = false, bool unreadable = false)
+        => new(uid, new MailMessage("Client", "client@exemple.fr", subject, null, unreadable ? "" : "Bonjour", Array.Empty<string>(), $"<{uid}@exemple.fr>"), bulk, unreadable);
+
+    [Fact]
+    public async Task FirstRun_LooksBackSevenDays_ThenFromTheLastRun()
+    {
+        var source = new FakeSource();
+        var (sync, _) = Create(source);
+        await sync.SyncAsync(CancellationToken.None);
+        await sync.SyncAsync(CancellationToken.None);
+        Assert.Equal(Now.AddDays(-7), source.Since[0]);
+        // Ensuite, jamais plus loin que le relevé précédent (avec une marge) : pas d'import de vieux e-mails.
+        Assert.Equal(Now.AddDays(-2), source.Since[1]);
+    }
+
+    [Fact]
+    public async Task PartialRun_KeepsTheEarlierDateFloor()
+    {
+        // Retour de congés : 3 e-mails, 2 par relevé. Le deuxième relevé doit encore chercher depuis le premier.
+        var source = new FakeSource();
+        var (sync, desk) = Create(source);
+        await sync.SyncAsync(CancellationToken.None);
+        source.Mailbox.AddRange(new[] { Mail(1, "Un"), Mail(2, "Deux"), Mail(3, "Trois") });
+        source.Partial = true;
+        _now = Now.AddDays(3);
+        await sync.SyncAsync(CancellationToken.None);
+        source.Partial = false;
+        _now = Now.AddDays(6);
+        await sync.SyncAsync(CancellationToken.None);
+        Assert.Equal(Now.AddDays(-2), source.Since[2]);
+        Assert.Equal(3, desk.Items.Count);
+        // Une fois tout relevé, la date avance de nouveau.
+        await sync.SyncAsync(CancellationToken.None);
+        Assert.Equal(Now.AddDays(4), source.Since[3]);
+    }
+
+    [Fact]
+    public async Task RemovedMail_DoesNotComeBack_EvenAfterAMailboxReset()
+    {
+        var source = new FakeSource();
+        source.Mailbox.Add(Mail(1, "Premier"));
+        var (sync, desk) = Create(source);
+        await sync.SyncAsync(CancellationToken.None);
+        desk.Remove(desk.Items.Single().Id);
+        source.UidValidity = 8;
+        await sync.SyncAsync(CancellationToken.None);
+        Assert.Empty(desk.Items);
+    }
+
+    [Fact]
+    public async Task UnreadableMail_IsAddedAndMentioned()
+    {
+        var source = new FakeSource();
+        source.Mailbox.AddRange(new[] { Mail(1, "Lisible"), Mail(2, "Illisible", unreadable: true) });
+        var (sync, desk) = Create(source);
+        var report = await sync.SyncAsync(CancellationToken.None);
+        Assert.Equal(2, desk.Items.Count);
+        Assert.Equal(1, report.Unreadable);
+        Assert.Contains("illisible", report.Summary);
+    }
+
+    [Fact]
+    public async Task AccountChangedDuringSync_OldResultIsNotShown()
+    {
+        var source = new FakeSource { Gate = new TaskCompletionSource(), Failure = new MailSyncException("Ancienne erreur.") };
+        var (sync, _) = Create(source);
+        var running = sync.SyncAsync(CancellationToken.None);
+        sync.SaveAccount(new MailAccount("autre@exemple.fr", "AUTRE"));
+        source.Gate.SetResult();
+        await running;
+        Assert.Null(sync.LastReport);
+    }
 
     [Fact]
     public async Task FirstRun_ImportsMailsAndSkipsNewsletters()
