@@ -8,6 +8,7 @@
     <Project Path="src/Cabinet.Diagnostic/Cabinet.Diagnostic.csproj" />
     <Project Path="src/Cabinet.Documents/Cabinet.Documents.csproj" />
     <Project Path="src/Cabinet.Mail/Cabinet.Mail.csproj" />
+    <Project Path="src/Cabinet.MailSync/Cabinet.MailSync.csproj" />
     <Project Path="src/Cabinet.Platform/Cabinet.Platform.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -17,6 +18,7 @@
     <Project Path="tests/Cabinet.Diagnostic.Windows.Tests/Cabinet.Diagnostic.Windows.Tests.csproj" />
     <Project Path="tests/Cabinet.Documents.Tests/Cabinet.Documents.Tests.csproj" />
     <Project Path="tests/Cabinet.Mail.Tests/Cabinet.Mail.Tests.csproj" />
+    <Project Path="tests/Cabinet.MailSync.Tests/Cabinet.MailSync.Tests.csproj" />
     <Project Path="tests/Cabinet.Platform.Tests/Cabinet.Platform.Tests.csproj" />
   </Folder>
 </Solution>
