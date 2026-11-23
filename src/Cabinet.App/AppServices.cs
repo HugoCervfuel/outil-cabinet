@@ -1,5 +1,6 @@
 using Cabinet.Ai;
 using Cabinet.Core;
+using Cabinet.MailSync;
 using Cabinet.Platform;
 
 namespace Cabinet.App;
@@ -9,10 +10,11 @@ internal sealed class AppServices : IDisposable
 {
     private readonly FileStream _instanceLock;
 
-    private AppServices(WorkSession session, MailDesk desk, InstructionDesk instruction, OllamaClient? ai, FileStream instanceLock, bool demo)
+    private AppServices(WorkSession session, MailDesk desk, InstructionDesk instruction, MailboxSync mailbox, OllamaClient? ai, FileStream instanceLock, bool demo)
     {
         Session = session;
         Desk = desk;
+        Mailbox = mailbox;
         Instruction = instruction;
         Ai = ai;
         _instanceLock = instanceLock;
@@ -24,6 +26,9 @@ internal sealed class AppServices : IDisposable
     public MailDesk Desk { get; }
 
     public InstructionDesk Instruction { get; }
+
+    /// <summary>Le relevé de la boîte de réception (Proton Mail Bridge, sur cet ordinateur).</summary>
+    public MailboxSync Mailbox { get; }
 
     /// <summary>L'IA locale (absente en mode démonstration, où des réponses fictives la remplacent).</summary>
     public OllamaClient? Ai { get; }
@@ -67,13 +72,19 @@ internal sealed class AppServices : IDisposable
         var desk = new MailDesk(store, () => session.Dossiers, assistant, () => DateTimeOffset.Now);
         ITextModel textModel = ai is null ? new DemoTextModel() : ai;
         var instruction = new InstructionDesk(store, () => session.Dossiers, textModel, () => DateTimeOffset.Now);
+        IMailboxSource source = demo ? new DemoMailboxSource() : new ProtonBridgeSource();
+        var mailbox = new MailboxSync(store, desk, source, () => DateTimeOffset.Now);
         if (demo)
         {
             DemoData.SeedMail(desk, session);
             DemoData.SeedPieces(instruction, session);
+            if (!mailbox.IsConfigured)
+            {
+                mailbox.SaveAccount(new MailAccount("avocat@exemple.fr", "demonstration"));
+            }
         }
 
-        return new AppServices(session, desk, instruction, ai, instanceLock, demo);
+        return new AppServices(session, desk, instruction, mailbox, ai, instanceLock, demo);
     }
 
     public void Dispose()
@@ -89,6 +100,31 @@ internal sealed class DemoProbe : IActivityProbe
     public ActiveWindow? ReadActiveWindow() => new("Microsoft Word", "Conclusions_MARTIN_v3.docx");
 
     public TimeSpan? IdleTime() => TimeSpan.Zero;
+}
+
+/// <summary>Une boîte de réception fictive, en mode démonstration : un e-mail au premier relevé, puis plus rien.</summary>
+internal sealed class DemoMailboxSource : IMailboxSource
+{
+    public async Task<FetchResult> FetchAsync(MailAccount account, uint? afterUid, uint? uidValidity, DateTimeOffset since, int max, CancellationToken cancellationToken)
+    {
+        await Task.Delay(700, cancellationToken);
+        if (afterUid is not null)
+        {
+            return new FetchResult(1, Array.Empty<FetchedMail>(), afterUid);
+        }
+
+        var mail = new MailMessage(
+            "Greffe du tribunal judiciaire",
+            "greffe.tj@exemple.fr",
+            "MARTIN c/ SCI LES TILLEULS — renvoi de l'audience de mise en état",
+            DateTimeOffset.Now.AddMinutes(-12),
+            "Maître,\n\nNous vous informons du renvoi de l'audience de mise en état dans l'affaire MARTIN c/ SCI LES TILLEULS au 12 février 2027 à 9 h 30.\n\nLe greffe",
+            Array.Empty<string>(),
+            "<demo-renvoi@exemple.fr>");
+        return new FetchResult(1, new[] { new FetchedMail(1, mail, false) }, 1);
+    }
+
+    public Task TestAsync(MailAccount account, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 /// <summary>Réponses fictives à la place de l'IA locale, en mode démonstration.</summary>

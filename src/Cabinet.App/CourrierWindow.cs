@@ -25,6 +25,7 @@ internal sealed class CourrierWindow : Window
     private readonly Shell _shell;
     private readonly StackPanel _list = new() { Spacing = 4 };
     private readonly ContentControl _detail = new();
+    private readonly StackPanel _syncBar = new() { Spacing = 8 };
     private readonly StackPanel _aiBar = new() { Spacing = 8 };
     private readonly StackPanel _notices = new() { Spacing = 6 };
     private readonly DispatcherTimer _draftTimer;
@@ -50,7 +51,7 @@ internal sealed class CourrierWindow : Window
 
         var header = Ui.Column(4,
             new TextBlock { Text = "Courrier", Classes = { "title" } },
-            Ui.Text("Déposez un e-mail : l'outil retrouve le dossier, dit ce qu'il faut faire et prépare une réponse. Vous relisez et validez ; rien n'est envoyé par l'outil.", 13, brush: "Ink2"));
+            Ui.Text("Les e-mails de votre boîte arrivent ici tout seuls (vous pouvez aussi en déposer un) : l'outil retrouve le dossier, dit ce qu'il faut faire et prépare une réponse. Vous relisez et validez ; rien n'est envoyé par l'outil.", 13, brush: "Ink2"));
 
         var actions = Ui.Row(8,
             Ui.Primary("Ouvrir un e-mail…", () => _ = PickFilesAsync()),
@@ -74,7 +75,7 @@ internal sealed class CourrierWindow : Window
         body.Children.Add(listCard);
         body.Children.Add(detailCard);
 
-        var bars = new Border { Margin = new Thickness(20, 0, 20, 10), Child = Ui.Column(8, _aiBar, _notices) };
+        var bars = new Border { Margin = new Thickness(20, 0, 20, 10), Child = Ui.Column(8, _syncBar, _aiBar, _notices) };
 
         Content = new DockPanel
         {
@@ -94,6 +95,7 @@ internal sealed class CourrierWindow : Window
         Opened += async (_, _) => await RefreshAiStatusAsync();
         Closing += (_, _) => SaveDraft();
 
+        RefreshSyncBar();
         RefreshList();
         RefreshDetail();
     }
@@ -125,6 +127,51 @@ internal sealed class CourrierWindow : Window
         }
 
         RefreshDetail(force: true);
+    }
+
+    /// <summary>Un relevé de la boîte commence ou se termine (appelé sur le fil de l'interface).</summary>
+    public void OnMailSyncChanged()
+    {
+        RefreshSyncBar();
+        RefreshList();
+    }
+
+    /// <summary>La ligne « Messagerie » : reliée ou non, dernier relevé, bouton « Relever maintenant ».</summary>
+    private void RefreshSyncBar()
+    {
+        _syncBar.Children.Clear();
+        var mailbox = _shell.Mailbox;
+        if (!mailbox.IsConfigured)
+        {
+            _syncBar.Children.Add(BarWithButton(
+                StatusLine("Grey", "Messagerie non reliée : reliez votre boîte Proton Mail pour que les e-mails arrivent ici sans rien faire."),
+                Ui.Secondary("Relier ma messagerie", _shell.ShowSettings)));
+            return;
+        }
+
+        var auto = mailbox.Account!.AutoFetch;
+        var (brush, text) = _shell.MailSyncing
+            ? ("Amber", "Relevé de la boîte de réception en cours…")
+            : mailbox.LastReport switch
+            {
+                { Error: { } error } => ("Warn", error),
+                { } report => ("Run", report.Summary + (auto ? " Relevé automatique toutes les 2 minutes." : "")),
+                null => ("Run", auto ? "Messagerie reliée : premier relevé dans un instant." : "Messagerie reliée ; relevé automatique désactivé dans les réglages."),
+            };
+        var button = Ui.Secondary("Relever maintenant", () => _ = _shell.SyncMailAsync());
+        button.IsEnabled = !_shell.MailSyncing;
+        _syncBar.Children.Add(BarWithButton(StatusLine(brush, text), button));
+    }
+
+    private static Grid BarWithButton(Control status, Control button)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        button.Margin = new Thickness(12, 0, 0, 0);
+        button.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(button, 1);
+        grid.Children.Add(status);
+        grid.Children.Add(button);
+        return grid;
     }
 
     // ---- Dépôt des e-mails -------------------------------------------------------------------------

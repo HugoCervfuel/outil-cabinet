@@ -23,6 +23,7 @@ internal sealed class Shell
     private CourrierWindow? _courrierWindow;
     private InstructionWindow? _instructionWindow;
     private NativeMenuItem? _pauseMenuItem;
+    private readonly CancellationTokenSource _closing = new();
     private int _ticks;
     private bool _reminder;
 
@@ -41,6 +42,11 @@ internal sealed class Shell
     public InstructionDesk Instruction => _services.Instruction;
 
     public bool IsDemo => _services.Demo;
+
+    public Cabinet.MailSync.MailboxSync Mailbox => _services.Mailbox;
+
+    /// <summary>Un relevé de la boîte de réception est en cours.</summary>
+    public bool MailSyncing { get; private set; }
 
     public Cabinet.Ai.OllamaClient? Ai => _services.Ai;
 
@@ -61,6 +67,7 @@ internal sealed class Shell
         _desktop.Exit += (_, _) =>
         {
             SaveQuietly();
+            _closing.Cancel();
             Queue.Dispose();
             _services.Dispose();
         };
@@ -197,6 +204,37 @@ internal sealed class Shell
         _instructionWindow.Activate();
     }
 
+    /// <summary>Après un changement de messagerie dans les réglages.</summary>
+    public void MailboxSettingsChanged() => _courrierWindow?.OnMailSyncChanged();
+
+    /// <summary>Relève la boîte de réception, puis lance l'analyse des nouveaux e-mails.</summary>
+    public async Task SyncMailAsync()
+    {
+        if (MailSyncing || !Mailbox.IsConfigured)
+        {
+            return;
+        }
+
+        MailSyncing = true;
+        _courrierWindow?.OnMailSyncChanged();
+        try
+        {
+            await Task.Run(() => Mailbox.SyncAsync(_closing.Token));
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            MailSyncing = false;
+        }
+
+        Queue.EnqueuePending();
+        _courrierWindow?.OnMailSyncChanged();
+        Refresh();
+    }
+
     public void OpenAccessibilitySettings() => PlatformServices.OpenAccessibilitySettings();
 
     public void Quit()
@@ -217,7 +255,7 @@ internal sealed class Shell
     /// <summary>Après un changement de dossiers ou de réglages.</summary>
     public void Refresh()
     {
-        _pastille?.Refresh(Session.Pastille, _reminder);
+        _pastille?.Refresh(Session.Pastille, _reminder, Desk.PendingCount);
         if (_panel is { IsVisible: true })
         {
             _panel.Refresh();
@@ -244,6 +282,12 @@ internal sealed class Shell
         {
             _reminder = ComputeReminder();
             Queue.EnqueuePending();
+        }
+
+        // Toutes les 2 minutes (le premier relevé quelques secondes après l'ouverture).
+        if (_ticks % 60 == 3 && Mailbox.AutoFetch)
+        {
+            _ = SyncMailAsync();
         }
 
         Refresh();

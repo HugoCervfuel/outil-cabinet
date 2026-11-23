@@ -26,13 +26,16 @@ public partial class PastilleWindow : Window
         _shell = shell;
         OpenButton.Click += (_, _) => _shell.TogglePanel();
         PauseButton.Click += (_, _) => _shell.TogglePause();
+        MailButton.Click += (_, _) => _shell.ShowCourrier();
         Grip.PointerPressed += OnGripPressed;
         Pill.ContextMenu = BuildMenu(shell);
         LayoutUpdated += (_, _) => PlaceInCorner();
     }
 
-    public void Refresh(PastilleState state, bool reminder)
+    public void Refresh(PastilleState state, bool reminder, int pendingMail)
     {
+        MailButton.IsVisible = pendingMail > 0;
+        MailText.Text = $"✉ {pendingMail}";
         LabelText.Text = state.Label;
         ElapsedText.Text = state.Status is PastilleStatus.Recording or PastilleStatus.Unrecognized ? Format.Clock(state.CurrentElapsed) : "";
         DayText.Text = "Jour " + Durations.Format(state.DayTotal);
